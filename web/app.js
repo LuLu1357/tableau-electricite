@@ -18,6 +18,12 @@
   let selectionRect = null; // cadre temporaire créé lors d'un cliquer-glisser dans le vide
   let activePointerId = null; // garde le glissé actif même si le pointeur quitte le SVG
   let currentTheme = TableauRender.DEFAULT_THEME;
+  let insertionPosition = { x: 80, y: 100 };
+  let audioContext = null;
+  let microphoneStream = null;
+  let microphoneSource = null;
+  let audioProcessor = null;
+  let dictating = false;
 
   const CANVAS_W = 2200, CANVAS_H = 1400;
 
@@ -34,6 +40,7 @@
 
     ws.onmessage = (evt) => {
       const msg = JSON.parse(evt.data);
+      if (handleDictationEvent(msg)) return;
       applyServerEvent(msg);
       render();
     };
@@ -167,6 +174,10 @@
     if (selectionRect) {
       const r = normalizedRect(selectionRect.startX, selectionRect.startY, selectionRect.x, selectionRect.y);
       overlay += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${theme.accent}" fill-opacity="0.10" stroke="${theme.accent}" stroke-width="1.5" stroke-dasharray="5,4" pointer-events="none"/>`;
+    }
+    if (insertionPosition) {
+      const p = insertionPosition;
+      overlay += `<g pointer-events="none" opacity="0.9"><line x1="${p.x - 9}" y1="${p.y}" x2="${p.x + 9}" y2="${p.y}" stroke="${theme.accent}" stroke-width="2"/><line x1="${p.x}" y1="${p.y - 9}" x2="${p.x}" y2="${p.y + 9}" stroke="${theme.accent}" stroke-width="2"/><circle cx="${p.x}" cy="${p.y}" r="13" fill="none" stroke="${theme.accent}" stroke-width="1" stroke-dasharray="3,3"/></g>`;
     }
     return overlay;
   }
@@ -361,6 +372,8 @@
       dragState = null;
     }
     if (selectionRect) {
+      const clickRect = normalizedRect(selectionRect.startX, selectionRect.startY, selectionRect.x, selectionRect.y);
+      if (clickRect.w < 8 && clickRect.h < 8) insertionPosition = { x: selectionRect.startX, y: selectionRect.startY };
       selectionRect = null;
       render();
     }
@@ -517,6 +530,134 @@
     }
     closeTextEditor();
   });
+
+  // ---------------------------------------------------------------------
+  // Dictée locale : audio PCM 16 kHz transitoire, envoyé au serveur local.
+  // Les aperçus ne sont jamais ajoutés au store ; seul le lot final l'est.
+  // ---------------------------------------------------------------------
+  const dictationBtn = document.getElementById('dictationBtn');
+  const dictationHint = document.getElementById('dictationHint');
+  const dictationOverlay = document.getElementById('dictationOverlay');
+  const dictationLabel = document.getElementById('dictationLabel');
+  const dictationPreview = document.getElementById('dictationPreview');
+  const dictationPulse = document.getElementById('dictationPulse');
+
+  function pcmToBase64(samples) {
+    const bytes = new Uint8Array(samples.buffer);
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 8192));
+    }
+    return btoa(binary);
+  }
+
+  function downsampleTo16k(input, inputRate) {
+    if (inputRate === 16000) {
+      const direct = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) direct[i] = Math.max(-32768, Math.min(32767, input[i] * 32767));
+      return direct;
+    }
+    const ratio = inputRate / 16000;
+    const length = Math.floor(input.length / ratio);
+    const result = new Int16Array(length);
+    for (let i = 0; i < length; i++) {
+      const start = Math.floor(i * ratio), end = Math.min(input.length, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      for (let j = start; j < end; j++) sum += input[j];
+      const value = sum / Math.max(1, end - start);
+      result[i] = Math.max(-32768, Math.min(32767, value * 32767));
+    }
+    return result;
+  }
+
+  function showDictation(status, label, preview) {
+    dictationOverlay.classList.remove('hidden');
+    dictationLabel.textContent = label;
+    dictationPulse.classList.toggle('active', status === 'listening');
+    if (preview != null) dictationPreview.textContent = preview;
+  }
+
+  async function startDictation() {
+    if (dictating || !ws || ws.readyState !== 1) return;
+    try {
+      microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
+      audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      audioProcessor.onaudioprocess = (event) => {
+        if (!dictating) return;
+        const pcm = downsampleTo16k(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+        send({ type: 'dictation-audio', pcm: pcmToBase64(pcm) });
+      };
+      microphoneSource.connect(audioProcessor);
+      audioProcessor.connect(audioContext.destination);
+      dictating = true;
+      dictationBtn.classList.add('listening');
+      dictationBtn.setAttribute('aria-pressed', 'true');
+      dictationBtn.textContent = '⏹ Arrêter';
+      dictationPreview.textContent = '';
+      showDictation('listening', 'Écoute…', 'Parle naturellement.');
+      send({ type: 'dictation-start', position: insertionPosition, selectedIds: [...selectedIds] });
+    } catch (error) {
+      showDictation('error', 'Microphone indisponible', error.message);
+    }
+  }
+
+  function releaseMicrophone() {
+    if (audioProcessor) audioProcessor.disconnect();
+    if (microphoneSource) microphoneSource.disconnect();
+    if (microphoneStream) microphoneStream.getTracks().forEach((track) => track.stop());
+    if (audioContext) audioContext.close();
+    audioProcessor = microphoneSource = microphoneStream = audioContext = null;
+  }
+
+  function stopDictation() {
+    if (!dictating) return;
+    dictating = false;
+    releaseMicrophone();
+    dictationBtn.classList.remove('listening');
+    dictationBtn.setAttribute('aria-pressed', 'false');
+    dictationBtn.textContent = '🎙️ Dicter';
+    showDictation('transcribing', 'Transcription…');
+    send({ type: 'dictation-stop' });
+  }
+
+  function handleDictationEvent(msg) {
+    if (!msg.type || !msg.type.startsWith('dictation-')) return false;
+    if (msg.type === 'dictation-preview') showDictation('listening', dictating ? 'Écoute…' : 'Transcription…', msg.text);
+    if (msg.type === 'dictation-status') showDictation(msg.status, msg.label || msg.status);
+    if (msg.type === 'dictation-warning') dictationHint.textContent = msg.message;
+    if (msg.type === 'dictation-error') {
+      releaseMicrophone(); dictating = false;
+      dictationBtn.classList.remove('listening'); dictationBtn.textContent = '🎙️ Dicter';
+      showDictation('error', 'Dictée interrompue', msg.message);
+    }
+    if (msg.type === 'dictation-result') {
+      insertionPosition = msg.nextPosition || insertionPosition;
+      showDictation('done', 'Ajouté au tableau', msg.transcript);
+      dictationHint.textContent = `Prêt pour la ligne suivante · ${msg.metrics.totalAfterStopMs} ms après l’arrêt`;
+      setTimeout(() => { if (!dictating) dictationOverlay.classList.add('hidden'); }, 2800);
+      render();
+    }
+    return true;
+  }
+
+  dictationBtn.addEventListener('click', () => dictating ? stopDictation() : startDictation());
+  window.addEventListener('keydown', (event) => {
+    if (event.altKey && event.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+      event.preventDefault();
+      dictating ? stopDictation() : startDictation();
+    }
+  });
+
+  fetch('/api/dictation/status').then((response) => response.json()).then((status) => {
+    if (!status.whisper) {
+      dictationBtn.disabled = true;
+      dictationHint.textContent = 'Dictée locale à installer (voir README).';
+    } else {
+      dictationHint.textContent = `Prêt · interprétation ${status.interpreter === 'rules-fallback' ? 'locale légère' : 'par modèle local'}`;
+    }
+  }).catch(() => {});
 
   // ---------------------------------------------------------------------
   // Modale d'info / commande Codex

@@ -6,6 +6,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { WebSocketServer } = require('ws');
+const { DictationSession, dictationCapabilities } = require('./dictation.js');
 
 function startHttpServer(store, port) {
   const app = express();
@@ -30,6 +31,10 @@ function startHttpServer(store, port) {
       mcpServerPath: path.join(__dirname, 'mcp-server.js'),
       codexCommand: `codex mcp add tableau-electricite -- node "${path.join(__dirname, 'mcp-server.js')}"`,
     });
+  });
+
+  app.get('/api/dictation/status', async (req, res) => {
+    res.json(await dictationCapabilities());
   });
 
   // Ouverture d'un PDF de cours à une page précise, dans un nouvel onglet
@@ -60,6 +65,7 @@ function startHttpServer(store, port) {
   store.on('theme', (evt) => broadcast({ type: 'theme', theme: evt.theme }));
 
   wss.on('connection', (ws) => {
+    let dictation = null;
     ws.send(JSON.stringify({ type: 'state', elements: store.getAll(), revision: store.revision, theme: store.getTheme() }));
 
     ws.on('message', (raw) => {
@@ -86,11 +92,35 @@ function startHttpServer(store, port) {
           case 'theme':
             store.setTheme(msg.theme);
             break;
+          case 'dictation-start':
+            dictation = new DictationSession({
+              store,
+              send: (payload) => { if (ws.readyState === 1) ws.send(JSON.stringify(payload)); },
+              position: msg.position,
+              selectedIds: msg.selectedIds,
+            });
+            ws.send(JSON.stringify({ type: 'dictation-status', status: 'listening', label: 'Écoute…' }));
+            break;
+          case 'dictation-audio':
+            if (dictation) dictation.addAudio(msg.pcm);
+            break;
+          case 'dictation-stop': {
+            if (!dictation) break;
+            const finishing = dictation;
+            dictation = null;
+            finishing.finish()
+              .then((result) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'dictation-result', ...result })); })
+              .catch((error) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'dictation-error', message: error.message })); });
+            break;
+          }
           default:
             break;
         }
       } catch (e) {
         console.error('[ws] erreur de traitement message:', e.message);
+        if (msg && typeof msg.type === 'string' && msg.type.startsWith('dictation-') && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'dictation-error', message: e.message }));
+        }
       }
     });
   });

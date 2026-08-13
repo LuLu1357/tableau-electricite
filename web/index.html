@@ -44,6 +44,11 @@
         <button class="tool" data-tool="wire" title="Fil (clique les points, Entrée pour finir)">〜</button>
       </div>
 
+      <div class="tool-group dictation-group">
+        <button class="tool dictation-btn" id="dictationBtn" title="Dicter à la position choisie (⌥ Espace)" aria-pressed="false">🎙️ Dicter</button>
+        <div class="dictation-hint" id="dictationHint">Clique dans le tableau, puis dicte.</div>
+      </div>
+
       <div class="tool-group shapes">
         <button class="tool" data-tool="shape-line" title="Ligne">╱</button>
         <button class="tool" data-tool="shape-arrow" title="Flèche">→</button>
@@ -85,6 +90,10 @@
 
     <main class="board-wrap">
       <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="dictationOverlay" class="dictation-overlay hidden" role="status" aria-live="polite">
+        <div class="dictation-state"><span id="dictationPulse" class="dictation-pulse"></span><span id="dictationLabel">Micro inactif</span></div>
+        <div id="dictationPreview" class="dictation-preview"></div>
+      </div>
       <div id="equationEditor" class="floating-editor hidden">
         <div class="floating-editor-title">Équation (LaTeX)</div>
         <input id="equationInput" type="text" placeholder="ex: U = R \cdot I" />

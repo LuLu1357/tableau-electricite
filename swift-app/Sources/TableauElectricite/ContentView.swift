@@ -101,6 +101,7 @@ struct WebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero)
+        webView.uiDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         return webView
     }
@@ -117,7 +118,24 @@ struct WebView: NSViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKUIDelegate {
         var lastToken: UUID?
+
+        // La dictée reste une fonctionnalité de la page web locale. WKWebView
+        // exige toutefois que l'hôte natif tranche explicitement la demande
+        // de capture. On n'accorde jamais ce droit à une origine distante.
+        func webView(
+            _ webView: WKWebView,
+            requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+            initiatedByFrame frame: WKFrameInfo,
+            type: WKMediaCaptureType,
+            decisionHandler: @escaping (WKPermissionDecision) -> Void
+        ) {
+            if origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 5858 {
+                decisionHandler(.grant)
+            } else {
+                decisionHandler(.prompt)
+            }
+        }
     }
 }

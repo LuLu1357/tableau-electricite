@@ -287,8 +287,8 @@ class CanvasStore extends EventEmitter {
 // techniques redondants comme createdAt).
 function dataOf(el) {
   switch (el.type) {
-    case 'text': return { x: el.x, y: el.y, text: el.text, color: el.color };
-    case 'equation': return { x: el.x, y: el.y, latex: el.latex, color: el.color };
+    case 'text': return { x: el.x, y: el.y, text: el.text, color: el.color, dictation: compactDictation(el.dictation) };
+    case 'equation': return { x: el.x, y: el.y, latex: el.latex, color: el.color, dictation: compactDictation(el.dictation) };
     case 'component': return { x: el.x, y: el.y, kind: el.kind, rotation: el.rotation, label: el.label, color: el.color };
     case 'shape': return { shape: el.shape, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2, color: el.color };
     case 'wire': return { points: el.points, color: el.color };
@@ -297,6 +297,17 @@ function dataOf(el) {
     case 'annotation': return { x: el.x, y: el.y, zone: el.zone, texte: el.texte, latex: el.latex, color: el.color };
     default: return {};
   }
+}
+
+function compactDictation(dictation) {
+  if (!dictation) return undefined;
+  return {
+    rawTranscript: dictation.rawTranscript,
+    spoken: dictation.spoken,
+    ambiguity: dictation.ambiguity || null,
+    interpreter: dictation.interpreter,
+    segmentCount: Array.isArray(dictation.segments) ? dictation.segments.length : 0,
+  };
 }
 
 module.exports = { CanvasStore };

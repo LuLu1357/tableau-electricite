@@ -217,6 +217,82 @@ navigateur. Si un affichage paraît absent, vérifie d’abord que l’élément
 bien présent dans `data/tableau.json`, puis recharge la page ; le fichier
 `server/snapshot.js` permet aussi de produire un rendu complet du tableau.
 
+## Dictée scientifique locale (prototype)
+
+La boucle normale de dictée est entièrement locale : le navigateur capture le
+micro, `whisper.cpp` transcrit, puis Qwen3 1.7B met la dictée en texte ou LaTeX.
+Codex et l’API OpenAI ne participent pas à cette boucle. Les aperçus restent
+transitoires ; seul le résultat final entre dans le store, avec
+`source: "eleve"`, en une mutation groupée.
+
+Installation sur Apple Silicon :
+
+```bash
+brew install whisper-cpp ollama
+mkdir -p models
+curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+  -o models/ggml-base.bin
+brew services start ollama
+ollama pull qwen3:1.7b
+```
+
+Lance ensuite Le Tableau comme d’habitude :
+
+```bash
+npm start
+```
+
+Dans `http://127.0.0.1:5858` :
+
+1. avec l’outil de sélection, clique dans une zone vide pour placer le petit
+   repère d’insertion ;
+2. clique sur **🎙️ Dicter** (ou `⌥ Espace`) et parle ;
+3. l’aperçu s’affiche pendant la parole ; clique sur **Arrêter** pour mettre au
+   propre et insérer ;
+4. la position descend automatiquement pour la phrase ou dictée suivante.
+
+Le serveur conserve dans chaque élément dicté la transcription brute, les
+segments temporels retournés par Whisper, le moteur d’interprétation et une
+éventuelle description d’ambiguïté. Qwen reçoit seulement un petit contexte
+structuré (sélection et éléments proches), jamais une capture permanente du
+tableau. Pour la latence et la fidélité, les formes élémentaires reconnues sont
+traitées d’abord par un parseur littéral ; Qwen intervient seulement pour les
+formulations non couvertes. Si Ollama n’est pas joignable, le parseur limité
+reste disponible ; il ne corrige jamais la physique.
+
+Variables optionnelles :
+
+- `WHISPER_CPP_BIN` : chemin de `whisper-cli` ;
+- `WHISPER_MODEL` : chemin d’un modèle GGML différent ;
+- `TABLEAU_LOCAL_MODEL` : modèle Ollama (défaut `qwen3:1.7b`) ;
+- `TABLEAU_DICTATION_PREVIEW_MS` : cadence minimale des aperçus (défaut 1400
+  ms).
+
+Diagnostic local : `GET /api/dictation/status` indique quel moteur est prêt.
+Les tests scientifiques et toutes les non-régressions restent réunis dans
+`npm test`. Sur macOS, `npm run test:dictation:local` génère une piste parlée
+française et valide la chaîne audio complète sans toucher au vrai tableau.
+
+### Mesures de référence (M2, 8 Go)
+
+Mesures réalisées le 13 août 2026 avec une phrase française de 1,93 s :
+
+| Étape | Latence observée | Mémoire maximale observée |
+|---|---:|---:|
+| Whisper `base`, seul (Metal) | 1,44 s | 315 Mo |
+| Whisper `base`, CPU/Accelerate, Qwen chargé | 1,58 s | 306 Mo pour Whisper |
+| Qwen3 1.7B, premier appel | 7,9 à 9,5 s | environ 1,39 Go résident |
+| Qwen3 1.7B, appels chauds | 1,8 à 3,4 s | environ 1,39 Go résident |
+
+Faire tourner Whisper et Qwen simultanément sur Metal a produit un premier
+aperçu à 12,34 s, donc le prototype force Whisper sur CPU/Accelerate et décharge
+Qwen après ses rares appels. Sur la phrase élémentaire testée, la chaîne finale
+hybride a mis environ 0,01 s après l’arrêt quand le dernier aperçu est
+réutilisable, ou 0,9 à 1,6 s si une dernière passe est nécessaire. Le premier aperçu
+arrive typiquement après le premier bloc audio (environ 1 s) plus une passe
+Whisper ; ce n’est pas encore du mot-à-mot, mais c’est assez court pour valider
+la boucle sans architecture de streaming plus lourde.
+
 ## Remerciements / bibliothèques utilisées
 
 Ce projet est un développement original, construit avec les

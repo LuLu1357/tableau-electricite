@@ -142,6 +142,12 @@ html, body {
 .tool.danger:hover { background: var(--panel-alt); }
 .tool.info-btn { width: 100%; justify-content: center; font-size: 13px; margin-top: auto; }
 
+.dictation-group { border-top: 1px solid var(--border); padding-top: 12px; }
+.tool.dictation-btn { width: 100%; font-size: 14px; gap: 6px; }
+.tool.dictation-btn.listening { background: var(--danger); border-color: var(--danger); color: #fff; }
+.tool.dictation-btn:disabled { opacity: .48; cursor: not-allowed; }
+.dictation-hint { width: 100%; color: var(--muted); font-size: 11px; line-height: 1.35; }
+
 .component-select {
   width: 100%;
   height: 34px;
@@ -201,6 +207,27 @@ html, body {
 }
 
 .component-ghost { opacity: .55; pointer-events: none; }
+
+.dictation-overlay {
+  position: fixed;
+  left: 250px;
+  bottom: 24px;
+  max-width: min(720px, calc(100vw - 290px));
+  min-width: 280px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 8px 24px var(--shadow);
+  z-index: 30;
+  backdrop-filter: blur(10px);
+}
+.dictation-overlay.hidden { display: none; }
+.dictation-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.dictation-pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dictation-pulse.active { background: var(--danger); animation: dictation-pulse 1.1s infinite; }
+.dictation-preview { margin-top: 6px; min-height: 18px; color: var(--ink); font-size: 16px; line-height: 1.35; }
+@keyframes dictation-pulse { 50% { transform: scale(1.45); opacity: .55; } }
 
 .eq-box .katex { font-size: 1em; }
 
