@@ -6,7 +6,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { WebSocketServer } = require('ws');
-const { DictationSession, dictationCapabilities } = require('./dictation.js');
+const { DictationSession, dictationCapabilities, dictationDiagnostics } = require('./dictation.js');
 
 function startHttpServer(store, port) {
   const app = express();
@@ -35,6 +35,12 @@ function startHttpServer(store, port) {
 
   app.get('/api/dictation/status', async (req, res) => {
     res.json(await dictationCapabilities());
+  });
+
+  // Diagnostic de développement local uniquement. Aucun panneau n'est ajouté
+  // à l'interface normale et les pistes audio ne sont pas conservées ici.
+  app.get('/api/dictation/diagnostics', (req, res) => {
+    res.json({ dictations: dictationDiagnostics() });
   });
 
   // Ouverture d'un PDF de cours à une page précise, dans un nouvel onglet

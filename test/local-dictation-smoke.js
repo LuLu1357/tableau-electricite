@@ -60,11 +60,15 @@ async function main() {
   const result = await session.finish();
   const element = store.getAll()[0];
 
-  assert.match(first.text, /VS est égal à VR plus VC/i);
+  assert.match(first.text, /VS est égal à VR (?:plus|\+) VC/i);
   assert.strictEqual(element.latex, 'V_s = V_R + V_C');
   assert.strictEqual(element.source, 'eleve');
-  assert.match(element.dictation.rawTranscript, /VS est égal à VR plus VC/i);
+  assert.match(element.dictation.rawTranscript, /VS est égal à VR (?:plus|\+) VC/i);
   assert.strictEqual(result.revision, 1);
+  assert.strictEqual(result.diagnostic.interpreter.selected, 'rules');
+  assert.strictEqual(result.diagnostic.interpreter.reason, 'complete_parse');
+  assert.strictEqual(result.diagnostic.structuredParse[0].ast.type, 'Equality');
+  assert.ok(Array.isArray(result.diagnostic.whisper.segments));
   console.log(JSON.stringify({ firstPreviewMs, ...result.metrics, transcript: result.transcript, latex: element.latex }, null, 2));
   console.log('[ok] audio -> aperçu -> transcription -> interprétation -> lot store source=eleve');
   if (store._saveTimer) clearTimeout(store._saveTimer);

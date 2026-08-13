@@ -252,46 +252,89 @@ Dans `http://127.0.0.1:5858` :
 4. la position descend automatiquement pour la phrase ou dictée suivante.
 
 Le serveur conserve dans chaque élément dicté la transcription brute, les
-segments temporels retournés par Whisper, le moteur d’interprétation et une
-éventuelle description d’ambiguïté. Qwen reçoit seulement un petit contexte
-structuré (sélection et éléments proches), jamais une capture permanente du
-tableau. Pour la latence et la fidélité, les formes élémentaires reconnues sont
-traitées d’abord par un parseur littéral ; Qwen intervient seulement pour les
-formulations non couvertes. Si Ollama n’est pas joignable, le parseur limité
-reste disponible ; il ne corrige jamais la physique.
+segments temporels retournés par Whisper, le moteur d’interprétation, la raison
+du routage, le parse structuré et une éventuelle description d’ambiguïté. Qwen
+reçoit seulement un petit contexte structuré (sélection et éléments proches),
+jamais une capture permanente du tableau. Pour la latence et la fidélité, les
+formes élémentaires reconnues sont traitées d’abord par un parseur littéral ;
+Qwen intervient seulement pour les formulations non couvertes. Les règles ne
+sont acceptées que si l'AST est
+valide et si tous les tokens significatifs ont été consommés. Si Ollama n’est
+pas joignable, une phrase mathématique incomplètement comprise est conservée
+comme texte ambigu au lieu de produire silencieusement un mauvais LaTeX. Le
+parseur ne corrige jamais la physique.
 
 Variables optionnelles :
 
 - `WHISPER_CPP_BIN` : chemin de `whisper-cli` ;
 - `WHISPER_MODEL` : chemin d’un modèle GGML différent ;
+- `TABLEAU_WHISPER_PROMPT` : contexte Whisper court à tester explicitement ;
+- `TABLEAU_WHISPER_USE_CONTEXT=1` : active le contexte scientifique proposé et
+  y ajoute au plus 12 symboles pertinents du tableau (désactivé par défaut tant
+  que le corpus réel n'a pas démontré un gain) ;
 - `TABLEAU_LOCAL_MODEL` : modèle Ollama (défaut `qwen3:1.7b`) ;
 - `TABLEAU_DICTATION_PREVIEW_MS` : cadence minimale des aperçus (défaut 1400
   ms).
 
 Diagnostic local : `GET /api/dictation/status` indique quel moteur est prêt.
+`GET /api/dictation/diagnostics` retourne les 50 dernières dictées en mémoire :
+durée audio, transcription et segments Whisper, modèle/prompt, interpréteur et
+raison de sélection, AST/échec de parse, sortie finale et latences. Cet endpoint
+local n'ajoute rien à l'interface et ne conserve pas l'audio.
+
+### Corpus vocal réel et benchmark
+
+Pour commencer un corpus privé, lance le serveur avec
+`TABLEAU_DICTATION_CAPTURE=1`. Chaque dictée ajoute dans le dossier Git-ignoré
+`data/dictation-corpus/` un WAV et une entrée de `manifest.json`. Complète pour
+chaque entrée `expectedTranscript` (ce qui a réellement été dit) et
+`expectedOutput` (LaTeX/texte voulu). `correctedOutput` peut conserver une
+correction ultérieure de Lucas. Aucun audio n'est capturé sur disque sans cette
+option et le dossier `data/` n'est pas versionné.
+
+Quand au moins 50 exemples réels sont complétés, lance :
+
+```bash
+npm run benchmark:dictation
+```
+
+Le banc utilise exactement les mêmes audios pour Base et Small, avec et sans
+contexte. Il écrit localement un rapport détaillé avec WER ASR, exactitude de
+l'interpréteur sur la transcription attendue, exactitude de bout en bout,
+latence et pic mémoire. Les chemins peuvent être changés avec
+`WHISPER_BASE_MODEL` et `WHISPER_SMALL_MODEL`. Le temps du premier aperçu est
+mesuré lors des vraies sessions et visible dans l'endpoint diagnostic.
+
 Les tests scientifiques et toutes les non-régressions restent réunis dans
 `npm test`. Sur macOS, `npm run test:dictation:local` génère une piste parlée
-française et valide la chaîne audio complète sans toucher au vrai tableau.
+française et valide uniquement la chaîne audio complète sans toucher au vrai
+tableau. Ce test synthétique n'est jamais compté comme une mesure de qualité
+ASR.
 
-### Mesures de référence (M2, 8 Go)
+### Mesures techniques disponibles (M2, 8 Go)
 
-Mesures réalisées le 13 août 2026 avec une phrase française de 1,93 s :
+Contrôle synthétique réalisé le 13 août 2026 avec une phrase de 1,93 s. Il
+mesure la latence et la mémoire de cette installation, pas la qualité sur la
+voix de Lucas :
 
 | Étape | Latence observée | Mémoire maximale observée |
 |---|---:|---:|
-| Whisper `base`, seul (Metal) | 1,44 s | 315 Mo |
-| Whisper `base`, CPU/Accelerate, Qwen chargé | 1,58 s | 306 Mo pour Whisper |
-| Qwen3 1.7B, premier appel | 7,9 à 9,5 s | environ 1,39 Go résident |
-| Qwen3 1.7B, appels chauds | 1,8 à 3,4 s | environ 1,39 Go résident |
+| Whisper `base`, CPU/Accelerate, sans prompt | 11,60 s | 320 Mo |
+| Whisper `base`, CPU/Accelerate, prompt scientifique | 11,79 s | 480 Mo |
+| Chaîne locale complète, aperçu réutilisé après arrêt | 0,01 s après arrêt | — |
 
-Faire tourner Whisper et Qwen simultanément sur Metal a produit un premier
-aperçu à 12,34 s, donc le prototype force Whisper sur CPU/Accelerate et décharge
-Qwen après ses rares appels. Sur la phrase élémentaire testée, la chaîne finale
-hybride a mis environ 0,01 s après l’arrêt quand le dernier aperçu est
-réutilisable, ou 0,9 à 1,6 s si une dernière passe est nécessaire. Le premier aperçu
-arrive typiquement après le premier bloc audio (environ 1 s) plus une passe
-Whisper ; ce n’est pas encore du mot-à-mot, mais c’est assez court pour valider
-la boucle sans architecture de streaming plus lourde.
+Le premier aperçu observé était de 12,34 s. Le prompt a transformé « plus » en
+« + » sur cette voix synthétique (désormais accepté par le parseur), sans gain
+de latence et avec davantage de mémoire ; il reste donc désactivé par défaut.
+Seul `ggml-base.bin` est actuellement installé. Il n'existe encore aucun audio
+réel de Lucas dans le corpus : aucune conclusion honnête Base contre Small, ni
+sur les traitements micro/rééchantillonnage, ne peut être donnée avant la
+collecte. L'architecture actuelle (traitements navigateur activés et moyenne
+par fenêtres vers 16 kHz) reste volontairement inchangée en attendant ce même
+benchmark. Cette installation fournit aussi `whisper-server` et
+`whisper-stream` : garder le modèle chargé est donc techniquement possible,
+mais n'est pas intégré avant une mesure comparative sur le corpus réel afin de
+ne pas transformer cette phase en réécriture du pipeline.
 
 ## Remerciements / bibliothèques utilisées
 

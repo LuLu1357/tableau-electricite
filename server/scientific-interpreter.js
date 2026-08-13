@@ -1,7 +1,7 @@
 // Interprète une transcription scientifique française sans la corriger.
-// Le chemin normal utilise un très petit modèle local via Ollama. Le parseur
-// déterministe reste volontairement limité : il sert de filet de sécurité et
-// rend les constructions élémentaires testables sans modèle téléchargé.
+// Les règles ne sont choisies que lorsqu'un parse AST complet est démontré.
+
+const { parseSpokenMath } = require('./spoken-math-parser.js');
 
 const DEFAULT_MODEL = process.env.TABLEAU_LOCAL_MODEL || 'qwen3:1.7b';
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
@@ -15,77 +15,71 @@ function normalizeSpeech(text) {
 }
 
 function splitStatements(text) {
-  return normalizeSpeech(text)
-    .split(/(?:[.!?;]+|\n+)/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return normalizeSpeech(text).split(/(?:[.!?;]+|\n+)/).map((part) => part.trim()).filter(Boolean);
 }
 
-function symbol(raw) {
-  const compact = raw.trim().replace(/\s+/g, '');
-  if (/^delta$/i.test(compact)) return '\\Delta';
-  if (/^[Vv][SsRrCc]$/.test(compact)) {
-    const index = compact[1].toUpperCase() === 'S' ? 's' : compact[1].toUpperCase();
-    return `V_${index}`;
-  }
-  if (/^[A-Za-z]$/.test(compact)) return compact;
-  return compact.replace(/[^A-Za-z0-9_\\]/g, '');
+function hasMathIntent(text) {
+  return /(?:\b(?:egal|egale|plus|moins|fois|sur|exposant|carre|cube|racine|derivee|parenthese)\b|=)/i
+    .test(text.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
 }
 
-function parseSide(raw) {
-  let side = raw.trim();
-  const derivative = /^([A-Za-z][A-Za-z0-9]*)\s+fois\s+d[ée]riv[ée]e?\s+de\s+([A-Za-z][A-Za-z0-9]*)\s+par\s+rapport\s+au\s+temps$/i.exec(side);
-  if (derivative) return `${symbol(derivative[1])}\\frac{d${symbol(derivative[2])}}{dt}`;
-
-  const numberWords = { un: '1', une: '1', deux: '2', trois: '3', quatre: '4', cinq: '5', six: '6', sept: '7', huit: '8', neuf: '9', dix: '10' };
-  side = side.replace(/\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b/gi, (word) => numberWords[word.toLowerCase()]);
-  side = side.replace(/\b([A-Za-z][A-Za-z0-9]*)\s+au\s+carr(?:é|e)/gi, (_, name) => `${symbol(name)}^2`);
-  side = side.replace(/\b([A-Za-z][A-Za-z0-9]*)\s+exposant\s+(-?\d+)\b/gi, (_, name, exponent) => `${symbol(name)}^{${exponent}}`);
-  side = side.replace(/\bmoins\b/gi, ' - ').replace(/\bplus\b/gi, ' + ');
-  side = side.replace(/\b(\d+)\s+fois\s+([A-Za-z][A-Za-z0-9]*(?:\^\{?\d+\}?)?)/gi, '$1$2');
-  side = side.replace(/\b([A-Za-z][A-Za-z0-9]*)\s+fois\s+([A-Za-z][A-Za-z0-9]*)\b/gi, (_, a, b) => `${symbol(a)}${symbol(b)}`);
-  side = side.replace(/\b4\s+a\s+c\b/gi, '4ac');
-  side = side.replace(/\bd\s*([A-Za-z][A-Za-z0-9]*)\s+sur\s+d\s*t\b/gi, (_, name) => `\\frac{d${symbol(name)}}{dt}`);
-  side = side.replace(/\bd\s*([A-Za-z][A-Za-z0-9]*)\s+sur\s+dt\b/gi, (_, name) => `\\frac{d${symbol(name)}}{dt}`);
-  side = side.replace(/\s+/g, ' ').trim();
-  return side.split(' ').map((token) => {
-    if (/^[A-Za-z][A-Za-z0-9]*$/.test(token)) return symbol(token);
-    return token;
-  }).join(' ').replace(/\s*([+\-=])\s*/g, ' $1 ').trim();
+function plainTextItem(spoken, ambiguity = null) {
+  return { type: 'text', text: spoken.charAt(0).toUpperCase() + spoken.slice(1), spoken, ambiguity };
 }
 
 function deterministicInterpret(text) {
+  const parses = [];
   const items = splitStatements(text).map((spoken) => {
-    const equality = /^(.*?)\s+(?:est\s+)?(?:[ée]gal(?:e)?\s+[àa]|[ée]gale?)\s+(.*)$/i.exec(spoken);
-    if (!equality) {
-      if (/(?:au carr(?:é|e)|\bexposant\b|\bplus\b|\bmoins\b|\bfois\b)/i.test(spoken)) {
-        const latex = parseSide(spoken);
-        const item = { type: 'equation', latex, spoken, ambiguity: null };
-        if (/\bexposant\b/i.test(spoken) && /\bplus\b/i.test(spoken)) {
-          item.ambiguity = {
-            alternatives: [latex, 'x^2 + 2x^{3+5}'],
-            reason: "La portée orale de l'exposant n'est pas explicite.",
-          };
-        }
-        return item;
-      }
-      return { type: 'text', text: spoken.charAt(0).toUpperCase() + spoken.slice(1), spoken, ambiguity: null };
+    if (!hasMathIntent(spoken)) {
+      parses.push({ spoken, complete: true, kind: 'text', reason: 'no_math_intent' });
+      return plainTextItem(spoken);
     }
-    const left = symbol(equality[1]);
-    const right = parseSide(equality[2]);
-    const item = { type: 'equation', latex: `${left} = ${right}`, spoken, ambiguity: null };
-    return item;
+    const parsed = parseSpokenMath(spoken);
+    parses.push({ spoken, ...parsed });
+    if (!parsed.complete) {
+      return plainTextItem(spoken, {
+        alternatives: [], reason: parsed.reason || 'unparsed_tokens',
+        unparsedTokens: parsed.unparsedTokens || [],
+      });
+    }
+    return { type: 'equation', latex: parsed.latex, spoken, ambiguity: parsed.ambiguity || null };
   });
-  return { items, engine: 'rules' };
+  const complete = parses.every((parse) => parse.complete);
+  return {
+    items,
+    engine: complete ? 'rules' : 'fallback',
+    confidence: complete ? 1 : 0,
+    complete,
+    reason: complete ? 'complete_parse' : (parses.find((parse) => !parse.complete)?.reason || 'unparsed_tokens'),
+    structuredParse: parses,
+  };
+}
+
+function addTimingEvidence(result, segments) {
+  const timedTokens = (segments || []).flatMap((segment) => segment.tokens || []).map((token) => ({
+    text: normalizeSpeech(token.text || token.token || ''),
+    from: token.offsets?.from ?? token.t0 ?? token.start,
+    to: token.offsets?.to ?? token.t1 ?? token.end,
+  })).filter((token) => token.text && Number.isFinite(token.from) && Number.isFinite(token.to));
+  if (!timedTokens.length) return result;
+  let strongest = null;
+  for (let index = 1; index < timedTokens.length; index++) {
+    if (!/^(?:plus|moins|\+|-)$/.test(timedTokens[index].text.toLowerCase())) continue;
+    const pause = timedTokens[index].from - timedTokens[index - 1].to;
+    if (!strongest || pause > strongest.pauseBeforeOperator) strongest = { operator: timedTokens[index].text, pauseBeforeOperator: pause };
+  }
+  if (!strongest || strongest.pauseBeforeOperator < 250) return result;
+  return {
+    ...result,
+    items: result.items.map((item) => item.ambiguity?.reason === 'exponent_scope'
+      ? { ...item, ambiguity: { ...item.ambiguity, timingEvidence: strongest, preferredAlternative: 0 } }
+      : item),
+  };
 }
 
 function rulesCanHandle(text) {
-  return splitStatements(text).every((spoken) => {
-    if (!/(?:[ée]gal|[ée]gale)/i.test(spoken)) {
-      return !/(?:\bint[ée]grale?\b|\bracine\b|\blimite\b|\bsomme\b|\bmatrice\b)/i.test(spoken);
-    }
-    return /(?:\bplus\b|\bmoins\b|\bfois\b|\bsur\b|\bd[ée]riv|\bau carr(?:é|e)\b|\bexposant\b)/i.test(spoken);
-  });
+  if (!normalizeSpeech(text)) return false;
+  return deterministicInterpret(text).complete;
 }
 
 function sanitizeResult(value, rawText) {
@@ -93,11 +87,7 @@ function sanitizeResult(value, rawText) {
   const items = sourceItems.map((item) => {
     const spoken = normalizeSpeech(item.spoken || rawText);
     if (item.type === 'equation' && typeof item.latex === 'string' && item.latex.trim()) {
-      const latex = item.latex.trim()
-        .replace(/∫/g, '\\int ')
-        .replace(/Δ/g, '\\Delta ')
-        .replace(/²/g, '^2')
-        .replace(/³/g, '^3');
+      const latex = item.latex.trim().replace(/∫/g, '\\int ').replace(/Δ/g, '\\Delta ').replace(/²/g, '^2').replace(/³/g, '^3');
       return { type: 'equation', latex, spoken, ambiguity: item.ambiguity || null };
     }
     if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
@@ -114,47 +104,45 @@ async function interpretWithOllama(text, context, options = {}) {
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || 20_000);
   try {
     const response = await fetch(`${options.baseUrl || OLLAMA_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: controller.signal,
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: controller.signal,
       body: JSON.stringify({
-        model: options.model || DEFAULT_MODEL,
-        system: SYSTEM_PROMPT,
+        model: options.model || DEFAULT_MODEL, system: SYSTEM_PROMPT,
         prompt: `Dictée: ${normalizeSpeech(text)}\nContexte structuré: ${JSON.stringify(context || {})}`,
-        stream: false,
-        format: 'json',
-        think: false,
-        keep_alive: 0,
+        stream: false, format: 'json', think: false, keep_alive: options.keepAlive == null ? 0 : options.keepAlive,
         options: { temperature: 0, num_predict: 320, num_ctx: 2048 },
       }),
     });
     if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
     const payload = await response.json();
-    return { items: sanitizeResult(JSON.parse(payload.response), text), engine: options.model || DEFAULT_MODEL };
-  } finally {
-    clearTimeout(timer);
-  }
+    return {
+      items: sanitizeResult(JSON.parse(payload.response), text), engine: options.model || DEFAULT_MODEL,
+      confidence: null, complete: true, reason: 'rules_incomplete_model_fallback', structuredParse: null,
+    };
+  } finally { clearTimeout(timer); }
 }
 
 async function interpretScientific(text, context, options = {}) {
-  if (!normalizeSpeech(text)) return { items: [], engine: 'none' };
-  if (options.forceRules || (!options.forceModel && rulesCanHandle(text))) return deterministicInterpret(text);
+  if (!normalizeSpeech(text)) return { items: [], engine: 'none', complete: true, reason: 'empty' };
+  const deterministic = addTimingEvidence(deterministicInterpret(text), context && context.segments);
+  if (options.forceRules || (!options.forceModel && deterministic.complete)) return deterministic;
   if (!options.forceRules) {
     try {
-      return await interpretWithOllama(text, context, options);
+      const modeled = await interpretWithOllama(text, context, options);
+      return { ...modeled, routing: { rules: deterministic.structuredParse, reason: deterministic.reason } };
     } catch (error) {
       if (options.requireModel) throw error;
+      return {
+        ...deterministic,
+        engine: 'fallback', complete: false,
+        reason: `model_unavailable_after_${deterministic.reason}`,
+        modelError: error.message,
+      };
     }
   }
-  return deterministicInterpret(text);
+  return deterministic;
 }
 
 module.exports = {
-  DEFAULT_MODEL,
-  SYSTEM_PROMPT,
-  deterministicInterpret,
-  interpretWithOllama,
-  interpretScientific,
-  normalizeSpeech,
-  rulesCanHandle,
+  DEFAULT_MODEL, SYSTEM_PROMPT, deterministicInterpret, hasMathIntent, interpretWithOllama,
+  interpretScientific, normalizeSpeech, rulesCanHandle,
 };

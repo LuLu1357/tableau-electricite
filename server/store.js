@@ -306,6 +306,7 @@ function compactDictation(dictation) {
     spoken: dictation.spoken,
     ambiguity: dictation.ambiguity || null,
     interpreter: dictation.interpreter,
+    interpreterReason: dictation.interpreterReason,
     segmentCount: Array.isArray(dictation.segments) ? dictation.segments.length : 0,
   };
 }

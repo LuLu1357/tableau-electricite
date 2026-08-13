@@ -259,6 +259,8 @@ async function main() {
     ok(health.ok === true, '/api/health répond correctement (serveur HTTP actif en parallèle du MCP)');
     const state = await fetch(`http://127.0.0.1:${TEST_PORT}/api/state`).then((r) => r.json());
     ok(typeof state.revision === 'number' && state.theme === 'nuit', '/api/state renvoie révision + thème cohérents');
+    const diagnostics = await fetch(`http://127.0.0.1:${TEST_PORT}/api/dictation/diagnostics`).then((r) => r.json());
+    ok(Array.isArray(diagnostics.dictations), '/api/dictation/diagnostics reste local et renvoie une liste structurée');
   }
 
   // -------------------------------------------------------------------
