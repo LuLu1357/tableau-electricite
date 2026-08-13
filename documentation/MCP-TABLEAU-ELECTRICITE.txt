@@ -1,0 +1,57 @@
+MCP UTILISÉ — tableau-electricite
+=================================
+
+Ce projet utilise son propre serveur MCP local : tableau-electricite.
+
+Fichier source : server/mcp-server.js
+Adresse de l’interface : http://127.0.0.1:5858
+Transport MCP : stdio
+Version déclarée : 2.0.0
+
+Installation dans Codex (depuis la racine du projet)
+----------------------------------------------------
+codex mcp add tableau-electricite -- node "$(pwd)/server/mcp-server.js"
+
+Vérification
+------------
+codex mcp list
+
+Fonctionnement
+-------------
+Le serveur démarre l’interface web locale et expose les outils MCP qui
+permettent à Codex de lire, annoter et modifier le tableau partagé.
+Il n’utilise aucune clé API distincte : tout s’exécute localement.
+
+Outils exposés
+--------------
+- voir_tableau
+- lister_elements
+- lire_tableau_compact
+- lire_modifications_depuis
+- ecrire_equation
+- ecrire_texte
+- dessiner_composant
+- tracer_fil
+- dessiner_forme
+- modifier_element
+- supprimer_element
+- effacer_tableau
+- appliquer_lot
+- pointer_erreur
+- ajouter_indice
+- encadrer_zone
+- afficher_formule_aide
+- afficher_application
+- remplacer_croquis
+- inserer_page_pdf
+- exporter_tableau_svg
+- changer_theme
+
+Dépendances principales
+-----------------------
+@modelcontextprotocol/sdk, Express, ws, KaTeX, sharp et zod.
+
+Licence et diffusion
+--------------------
+Ce fichier décrit la configuration du MCP embarqué dans ce dépôt.
+Le code du serveur reste consultable dans server/mcp-server.js.

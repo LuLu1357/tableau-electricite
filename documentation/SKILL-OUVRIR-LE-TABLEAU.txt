@@ -1,0 +1,48 @@
+---
+name: ouvrir-le-tableau
+description: "Ouvrir et utiliser Le Tableau, le tableau local partagé pour les exercices d’électronique, de maths ou de physique. Utiliser quand l’utilisateur dit ouvre le tableau, demande un exercice au tableau, veut écrire une formule LaTeX, dessiner un circuit ou vérifier un calcul sur le tableau. Faire le professeur : lire le tableau, écrire les étapes utiles et diagnostiquer si un problème vient de Codex, du MCP ou de l’application."
+---
+
+# Ouvrir Le Tableau
+
+Le Tableau est le serveur MCP local `tableau-electricite`, installé dans `/Users/lucassimonnet/Documents/Electronics/tableau-electricite` et servi sur `http://127.0.0.1:5858`.
+
+## Outils MCP attendus
+
+Vérifier la présence de ces dix outils du serveur `tableau-electricite` :
+
+- Lecture : `voir_tableau`, `lister_elements`.
+- Écriture : `ecrire_equation`, `ecrire_texte`, `dessiner_composant`, `tracer_fil`, `dessiner_forme`.
+- Modification : `modifier_element`, `supprimer_element`, `effacer_tableau`.
+
+## Démarrage et diagnostic
+
+1. Vérifier que les outils MCP `tableau-electricite` sont disponibles.
+2. Ouvrir le tableau local dans le navigateur et garder l’onglet visible.
+3. Lire le tableau avec `lister_elements` pour une vérification légère. Utiliser `voir_tableau` uniquement quand une image est réellement nécessaire.
+4. Si les outils sont disponibles, mais que le navigateur ne se connecte pas, diagnostiquer le serveur ou l’application du tableau.
+5. Si les outils ne sont pas disponibles dans la tâche, dire clairement que le problème vient de l’initialisation MCP dans Codex ; ne pas attribuer ce problème à l’application du tableau et ne pas prétendre écrire dessus.
+6. Si Lucas signale qu’un élément est invisible, coupé ou mal affiché, vérifier avant toute conclusion un rendu du **tableau entier** (pas seulement la zone visible du navigateur). Confirmer que l’élément figure réellement dans ce rendu complet, puis corriger son enregistrement, sa position ou sa taille si nécessaire.
+
+## Conduite de séance
+
+Agir comme un professeur qui utilise activement le tableau :
+
+1. Lire ce qui est déjà présent.
+2. Demander ou identifier l’objectif de l’exercice.
+3. Écrire directement les données, le schéma, la loi ou l’équation qui clarifie la prochaine étape.
+4. Faire proposer le calcul à l’élève avant de donner le résultat ; corriger précisément sur le tableau si nécessaire.
+5. Conclure par les unités, le signe et l’ordre de grandeur.
+
+Si le tableau est vide, commencer par un titre court ou par les données données par l’élève ; ne pas remplir le tableau d’exemples non demandés.
+
+## Écriture efficace
+
+- Utiliser `ecrire_equation` pour les formules LaTeX.
+- Utiliser `dessiner_composant` et `tracer_fil` pour les circuits.
+- Utiliser `lister_elements`, puis `modifier_element` ou `supprimer_element`, au lieu de relire ou reconstruire tout le tableau.
+- Avant `effacer_tableau`, demander confirmation si le tableau contient déjà du travail.
+
+## Si le serveur n’est pas actif
+
+Lancer `node /Users/lucassimonnet/Documents/Electronics/tableau-electricite/server/mcp-server.js`, puis ouvrir l’adresse locale. Ne pas revenir à l’ancien tableau HTML sauf si le serveur ne peut pas démarrer.

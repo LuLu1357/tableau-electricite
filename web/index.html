@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Le Tableau — Cours d'électricité avec Codex</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2218%22 fill=%22%23111827%22/><path d=%22M25 60 L45 40 L60 55 L78 30%22 stroke=%22%2360a5fa%22 stroke-width=%228%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">⚡</span>
+      <div class="brand-text">
+        <strong>Le Tableau</strong>
+        <span>Cours d'électricité avec Codex</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="theme-switcher" id="themeSwitcher" title="Thème du tableau">
+        <button class="theme-btn" data-theme="nuit">🌙 Nuit</button>
+        <button class="theme-btn" data-theme="papier">📜 Papier</button>
+        <button class="theme-btn" data-theme="clair">☀️ Clair</button>
+      </div>
+      <div class="status" id="status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Connexion…</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="toolbar">
+      <div class="tool-group">
+        <button class="tool" data-tool="select" title="Sélectionner / déplacer">↖</button>
+        <button class="tool" data-tool="pen" title="Crayon">✏️</button>
+        <button class="tool" data-tool="eraser" title="Gomme (clique sur un élément)">🧽</button>
+      </div>
+
+      <div class="tool-group">
+        <button class="tool" data-tool="text" title="Texte">🔤</button>
+        <button class="tool" data-tool="equation" title="Équation LaTeX">∑</button>
+        <button class="tool" data-tool="wire" title="Fil (clique les points, Entrée pour finir)">〜</button>
+      </div>
+
+      <div class="tool-group shapes">
+        <button class="tool" data-tool="shape-line" title="Ligne">╱</button>
+        <button class="tool" data-tool="shape-arrow" title="Flèche">→</button>
+        <button class="tool" data-tool="shape-rect" title="Rectangle">▭</button>
+        <button class="tool" data-tool="shape-ellipse" title="Ellipse">◯</button>
+      </div>
+
+      <div class="tool-group components-group">
+        <div class="group-label">Composants</div>
+        <select id="componentSelect" class="component-select"></select>
+        <button class="tool" data-tool="component" title="Placer le composant sélectionné">🔧</button>
+        <label class="rotation-label">Rotation
+          <select id="rotationSelect">
+            <option value="0">0°</option>
+            <option value="90">90°</option>
+            <option value="180">180°</option>
+            <option value="270">270°</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="tool-group">
+        <label class="color-label">Couleur
+          <input type="color" id="colorPicker" value="#1f2933" />
+        </label>
+      </div>
+
+      <div class="tool-group">
+        <button class="tool danger" id="clearBtn" title="Effacer tout le tableau">🗑️ Effacer</button>
+      </div>
+
+      <div class="legend">
+        <div><span class="legend-dot legend-eleve"></span> Toi</div>
+        <div><span class="legend-dot legend-codex"></span> Codex</div>
+      </div>
+
+      <button class="tool info-btn" id="infoBtn">ℹ️ Connecter Codex</button>
+    </aside>
+
+    <main class="board-wrap">
+      <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="equationEditor" class="floating-editor hidden">
+        <div class="floating-editor-title">Équation (LaTeX)</div>
+        <input id="equationInput" type="text" placeholder="ex: U = R \cdot I" />
+        <div id="equationPreview" class="equation-preview"></div>
+        <div class="floating-editor-actions">
+          <button id="equationCancel">Annuler</button>
+          <button id="equationConfirm" class="primary">Ajouter</button>
+        </div>
+      </div>
+      <div id="textEditor" class="floating-editor hidden">
+        <div class="floating-editor-title">Texte</div>
+        <input id="textInput" type="text" placeholder="Ta remarque…" />
+        <div class="floating-editor-actions">
+          <button id="textCancel">Annuler</button>
+          <button id="textConfirm" class="primary">Ajouter</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="infoModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Connecter Codex à ce tableau</h2>
+      <p>Ce tableau tourne en local sur ta machine — pas de clé API, tout passe par ton abonnement ChatGPT Plus / Codex.</p>
+      <p>Dans un terminal, lance une seule fois :</p>
+      <pre id="codexCommand">codex mcp add tableau-electricite -- node "…"</pre>
+      <p>Puis démarre Codex normalement (<code>codex</code>) dans le dossier de ton choix, et demande-lui par exemple :</p>
+      <pre>Regarde le tableau et dis-moi si mon calcul de résistance équivalente est juste.</pre>
+      <button id="closeModal" class="primary">Fermer</button>
+    </div>
+  </div>
+
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="render.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
