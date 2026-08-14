@@ -104,6 +104,90 @@ function sanitizeModelLatex(value) {
   return latex;
 }
 
+
+function foldGroundingText(value) {
+  return normalizeSpeech(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+// Le modèle local peut structurer la dictée, mais il ne peut pas inventer
+// une constante, une unité ou une relation scientifique qui n'est pas
+// réellement présente dans la transcription ASR.
+function assertModelLatexGrounded(latex, rawText) {
+  const speech = foldGroundingText(rawText);
+  const originalSpeech = String(rawText || '');
+
+  const checks = [
+    {
+      name: 'pi',
+      output: /\\pi\b|π/u,
+      grounded: () => /\bpi\b/.test(speech) || originalSpeech.includes('π'),
+    },
+    {
+      name: 'gamma',
+      output: /\\Gamma\b|Γ/u,
+      grounded: () => /\bgamma\b/.test(speech) || originalSpeech.includes('Γ'),
+    },
+    {
+      name: 'omega',
+      output: /\\omega\b|ω/u,
+      // Accepte aussi les concaténations Apple sûres comme Joméga/omégaL.
+      grounded: () => speech.includes('omega') || originalSpeech.includes('ω'),
+    },
+    {
+      name: 'delta',
+      output: /\\Delta\b|Δ/u,
+      grounded: () => /\bdelta\b/.test(speech) || originalSpeech.includes('Δ'),
+    },
+    {
+      name: 'phi',
+      output: /\\phi\b|φ/u,
+      grounded: () => /\bphi\b/.test(speech) || originalSpeech.includes('φ'),
+    },
+    {
+      name: 'integrale',
+      output: /\\int\b|∫/u,
+      grounded: () => speech.includes('integral') || originalSpeech.includes('∫'),
+    },
+    {
+      name: 'racine',
+      output: /\\sqrt\b|√/u,
+      grounded: () => /\bracine\b/.test(speech) || originalSpeech.includes('√'),
+    },
+    {
+      name: 'ohm_ou_omega_majuscule',
+      output: /\\Omega\b|Ω/u,
+      grounded: () =>
+        speech.includes('omega')
+        || /\bohms?\b/.test(speech)
+        || originalSpeech.includes('Ω'),
+    },
+    {
+      name: 'hertz',
+      output: /\b(?:[kMmunp]?Hz|(?:kilo|mega|milli|micro|nano|pico)?hertz)\b/,
+      grounded: () =>
+        /\b(?:hz|khz|mhz|hertz|kilohertz|megahertz|millihertz|microhertz|nanohertz|picohertz)\b/.test(speech),
+    },
+    {
+      name: 'equivalence',
+      output: /\\equiv\b|≡/u,
+      grounded: () =>
+        /\b(?:equivaut|equivalent|equivalente|equivalence)\b/.test(speech)
+        || originalSpeech.includes('≡'),
+    },
+  ];
+
+  for (const check of checks) {
+    if (check.output.test(latex) && !check.grounded()) {
+      throw new Error(`Sortie modèle non ancrée dans la dictée: ${check.name}`);
+    }
+  }
+
+  return latex;
+}
+
 function deterministicInterpret(text, options = {}) {
   const parses = [];
   const statements = splitStatements(text, options);
@@ -174,6 +258,7 @@ function sanitizeResult(value, rawText) {
     if (spokenComparable && !rawComparable.includes(spokenComparable) && !spokenComparable.includes(rawComparable)) return null;
     if (item.type === 'equation' && typeof item.latex === 'string' && item.latex.trim()) {
       const latex = sanitizeModelLatex(item.latex);
+      assertModelLatexGrounded(latex, rawText);
       return { type: 'equation', latex, spoken, ambiguity: item.ambiguity || null };
     }
     if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {

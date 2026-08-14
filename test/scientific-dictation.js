@@ -103,6 +103,65 @@ assert.strictEqual(sanitizeModelLatex('V_C=\frac{1}{C}\bigint I dt'), 'V_C=\\fra
 assert.throws(() => sanitizeModelLatex('Z=\\commande_inconnue{x}'));
 console.log('[ok] le LaTeX JSON corrompu est réparé et toute commande invalide est refusée');
 
+const hallucinatedPiTranscript = 'Oméga égale deux pifs à la fréquence';
+assert.throws(
+  () => sanitizeResult({
+    items: [{
+      type: 'equation',
+      latex: '\\omega = 2\\pi f',
+      spoken: hallucinatedPiTranscript,
+    }],
+  }, hallucinatedPiTranscript),
+  /non ancrée.*pi/,
+);
+
+const hallucinatedHertzTranscript = 'La fréquence est égale à 1 kH';
+assert.throws(
+  () => sanitizeResult({
+    items: [{
+      type: 'equation',
+      latex: 'f = 1\\text{kHz}',
+      spoken: hallucinatedHertzTranscript,
+    }],
+  }, hallucinatedHertzTranscript),
+  /non ancrée.*hertz/,
+);
+
+const hallucinatedGammaTranscript = 'Z C égal un sur Joméga C';
+assert.throws(
+  () => sanitizeResult({
+    items: [{
+      type: 'equation',
+      latex: 'Z_C = \\frac{1}{\\Gamma C}',
+      spoken: hallucinatedGammaTranscript,
+    }],
+  }, hallucinatedGammaTranscript),
+  /non ancrée.*gamma/,
+);
+
+const groundedPiTranscript = 'Oméga égale deux pi fois la fréquence';
+const groundedPi = sanitizeResult({
+  items: [{
+    type: 'equation',
+    latex: '\\omega = 2\\pi f',
+    spoken: groundedPiTranscript,
+  }],
+}, groundedPiTranscript);
+assert.strictEqual(groundedPi[0].latex, '\\omega = 2\\pi f');
+
+const groundedHertzTranscript = 'La fréquence est égale à un kilohertz';
+const groundedHertz = sanitizeResult({
+  items: [{
+    type: 'equation',
+    latex: 'f = 1\\text{kHz}',
+    spoken: groundedHertzTranscript,
+  }],
+}, groundedHertzTranscript);
+assert.strictEqual(groundedHertz[0].latex, 'f = 1\\text{kHz}');
+
+console.log('[ok] le fallback modèle ne peut plus inventer pi, gamma ou hertz absents de la dictée');
+
+
 const boilerplateTranscript = "Z égale R plus j ouvre parenthèse oméga L moins un sur oméga C ferme parenthèse. Sous-titres réalisés par la communauté d'Amara.org";
 assert.strictEqual(stripKnownAsrBoilerplate(boilerplateTranscript), 'Z égale R plus j ouvre parenthèse oméga L moins un sur oméga C ferme parenthèse');
 assert.strictEqual(extractLatestSelfCorrection('U est égal à, attends, U est égal à R fois I'), 'U est égal à R fois I');
