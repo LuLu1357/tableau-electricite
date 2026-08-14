@@ -544,10 +544,121 @@
   const dictationPulse = document.getElementById('dictationPulse');
   const appleSpeechBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appleSpeech;
   const appleSpeechAvailable = !!appleSpeechBridge && window.tableauAppleSpeechAvailable !== false;
+  // Vocabulaire contextuel transmis à Apple Speech.
+  // Apple recommande des expressions courtes et au maximum 100 phrases.
+  // Ce vocabulaire aide uniquement la reconnaissance vocale :
+  // il ne corrige jamais une transcription après coup.
   const scientificVocabulary = [
-    'Pythagore', 'Kirchhoff', 'Thévenin', 'Norton', 'Ohm', 'Faraday',
-    'résistance', 'condensateur', 'capacité', 'impédance', 'tension', 'courant',
-    'VC', 'VR', 'VS', 'VL', 'R1', 'R2', 'delta', 'oméga', 'phi', 'LaTeX'
+    // Lois, scientifiques et vocabulaire très spécifique
+    'Pythagore',
+    'Kirchhoff',
+    'Thévenin',
+    'Norton',
+    'Ohm',
+    'Faraday',
+
+    // Symboles et alphabet scientifique
+    'delta',
+    'oméga',
+    'oméga zéro',
+    'phi',
+    'pi',
+    'j',
+    'j oméga',
+    'oméga L',
+    'oméga C',
+
+    // Mathématiques
+    'racine carrée',
+    'au carré',
+    'au cube',
+    'puissance deux',
+    'exposant',
+    'dérivée',
+    'dérivée première',
+    'dérivée seconde',
+    'prime',
+    'prime prime',
+    'intégrale',
+    'sinus',
+    'cosinus',
+    'tangente',
+    'logarithme',
+    'exponentielle',
+    'fréquence angulaire',
+    'résonance',
+
+    // Électricité / électronique
+    'tension',
+    'courant',
+    'résistance',
+    'résistance équivalente',
+    'condensateur',
+    'capacité',
+    'bobine',
+    'inductance',
+    'impédance',
+    'admittance',
+    'fréquence',
+    'puissance',
+    'charge électrique',
+    'RLC',
+    'circuit RLC',
+    'régime sinusoïdal',
+
+    // Unités SI utiles au projet
+    'volt',
+    'ampère',
+    'farad',
+    'henry',
+    'hertz',
+    'watt',
+    'coulomb',
+    'kilo ohm',
+    'méga ohm',
+    'milliampère',
+    'microampère',
+    'micro farad',
+    'nano farad',
+    'pico farad',
+    'milli henry',
+    'kilohertz',
+    'mégahertz',
+    'milliwatt',
+
+    // Variables et indices fréquemment dictés
+    'VS',
+    'V S',
+    'VR',
+    'V R',
+    'VC',
+    'V C',
+    'VL',
+    'V L',
+
+    'R1',
+    'R un',
+    'R2',
+    'R deux',
+    'R3',
+    'R trois',
+
+    'C1',
+    'C un',
+    'C2',
+    'C deux',
+
+    'ZC',
+    'Z C',
+    'ZL',
+    'Z L',
+
+    'U max',
+
+    'VTH',
+    'V T H',
+    'RTH',
+    'R T H'
   ];
   let dictationStatus = { whisper: false };
 

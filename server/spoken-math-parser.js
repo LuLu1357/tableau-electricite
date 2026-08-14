@@ -47,8 +47,24 @@ function prepareSpeech(raw) {
 function tokenize(raw, options = {}) {
   // Whisper conserve souvent la casse des symboles explicitement épelés.
   // On garde C distinct de la variable polynomiale c.
-  const joinedVoltageSymbols = String(raw).replace(/\b([VZ])\s+([RSCL])(?:\s+(\d+))?\b/g, (_, base, symbol, index) => `${base}${symbol}${index || ''}`);
   const isAppleSource = options.source === 'apple';
+  let source = String(raw);
+
+  if (isAppleSource) {
+    source = source
+      // Apple sépare parfois l'indice : « C 2 ».
+      .replace(/\bC\s+(\d+)\b/g, 'C$1')
+      // Apple peut fournir directement le signe de multiplication.
+      .replace(/[×·]/g, ' fois ')
+      // « -5X » / « -4AC » doivent redevenir l'opérateur oral moins.
+      .replace(/[−–—-]\s*(?=\d)/g, ' moins ')
+      // Apple colle parfois le coefficient et deux symboles : 4AC.
+      .replace(/\b(\d+)([A-Z])([A-Z])\b/g, '$1 $2 $3')
+      // Ou un coefficient et un symbole : 5X.
+      .replace(/\b(\d+)([A-Za-z])\b/g, '$1 $2');
+  }
+
+  const joinedVoltageSymbols = source.replace(/\b([VZ])\s+([RSCL])(?:\s+(\d+))?\b/g, (_, base, symbol, index) => `${base}${symbol}${index || ''}`);
   let text = fold(joinedVoltageSymbols
     .replace(/\bC\b/g, ' capc ')
     .replace(/\bL\b/g, ' capl ')
@@ -64,6 +80,11 @@ function tokenize(raw, options = {}) {
     .replace(/\ble\s+courant\s+capi\b/g, ' capi ')
     .replace(/\b(?:z|capz)\s+majuscule\b/g, ' capz ')
     .replace(/\bzede\b/g, ' capz ')
+    // Variantes lexicales Apple : aucune information scientifique n'est inventée.
+    .replace(/\bjomega\b/g, ' j omega ')
+    .replace(/\bomegal\b/g, ' omega capl ')
+    .replace(/\bomegac\b/g, ' omega capc ')
+    .replace(/\bintegral\b/g, ' integrale ')
     .replace(/\br\s+equivalent(?:e)?\b/g, ' req ')
     .replace(/\bd\s+erivee?\s+de\b/g, ' derivee de ')
     .replace(/\bderive\b/g, ' derivee ')
@@ -71,7 +92,7 @@ function tokenize(raw, options = {}) {
     .replace(/\bcocinus\b/g, ' cosinus ')
     .replace(/\bcapu\s+de\s+t\b/g, ' uoft ')
     .replace(/\bcapu\s+max\b/g, ' umax ')
-    .replace(/\b(?:un|1)\s+sur\s+(capc|[a-z])\s+fois\s+integrale\b/g, ' reciprocal $1 fois integrale ')
+    .replace(/\b(?:un|1)\s+sur\s+(capc|c\d+|[a-z])\s+fois\s+integrale\b/g, ' reciprocal $1 fois integrale ')
     .replace(/\bun\s+demi\b/g, ' half ')
     // Whisper-specific soft corrections are applied by default except when the
     // source is explicitly the Apple transcription pipeline. These corrections
@@ -281,7 +302,7 @@ class Parser {
   }
 
   isSymbolStart(token) {
-    return ['delta', 'omega', 'phi', 'uoft', 'umax'].includes(token) || ['capc', 'capl', 'capp', 'capu', 'capi', 'cape', 'capz', 'req'].includes(token) || /^[a-z]$/.test(token || '') || /^(?:v[rscl]|z[cl]|r\d+|v[rcsl]\d*|d[a-z])$/.test(token || '');
+    return ['delta', 'omega', 'phi', 'uoft', 'umax'].includes(token) || ['capc', 'capl', 'capp', 'capu', 'capi', 'cape', 'capz', 'req'].includes(token) || /^[a-z]$/.test(token || '') || /^(?:v[rscl]|z[cl]|r\d+|c\d+|v[rcsl]\d*|d[a-z])$/.test(token || '');
   }
 
   parseSymbol() {
@@ -313,6 +334,7 @@ class Parser {
     }
     if (/^v[rcs]\d+$/.test(token)) return node('Symbol', { name: 'V', subscript: token.slice(1).toUpperCase() });
     if (/^r\d+$/.test(token)) return node('Symbol', { name: 'R', subscript: token.slice(1) });
+    if (/^c\d+$/.test(token)) return node('Symbol', { name: 'C', subscript: token.slice(1) });
     if (/^d[a-z]$/.test(token)) return node('DifferentialSymbol', { name: token[1].toUpperCase() === 'T' ? 't' : token[1].toUpperCase() });
 
     const upper = token.toUpperCase();

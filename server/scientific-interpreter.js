@@ -26,7 +26,7 @@ function stripKnownAsrBoilerplate(text) {
 
 function extractLatestSelfCorrection(text) {
   const speech = normalizeSpeech(text);
-  const marker = /\b(?:attends?(?:\s+non)?|non|en\s+fait|je\s+me\s+reprends)(?:\s*,?\s*(?:je\s+voulais\s+dire\s+)?)?/gi;
+  const marker = /\b(?:attends?(?:\s+non)?|non|en\s+fait|je\s+me\s+reprends|pardon(?:\s*,?\s*je\s+(?:me\s+)?reprends)?)(?:\s*,?\s*(?:je\s+voulais\s+dire\s+)?)?/gi;
   let match;
   let latest = null;
   while ((match = marker.exec(speech))) {
@@ -52,11 +52,20 @@ function extractLatestSelfCorrection(text) {
   return normalizeSpeech(`${speech.slice(0, scopeStart)} ${latest.remainder}`);
 }
 
-function splitStatements(text) {
+function splitStatements(text, options = {}) {
+  // Apple Speech ponctue parfois une variable épelée comme « X. Au carré »
+  // ou « Z. C. égal ». Cette ponctuation n'est pas une frontière de phrase.
+  let normalized = normalizeSpeech(text);
+  if (options.source === 'apple') {
+    normalized = normalized
+      .replace(/\b([A-Za-z])\.\s*([A-Za-z])\.\s*(?=(?:est\s+)?égal)/gi, '$1 $2 ')
+      .replace(/\b([A-Za-z])\.\s*(?=(?:au\s+carr[ée]|prime\b|(?:est\s+)?égal))/gi, '$1 ');
+  }
+
   // Whisper insère parfois une fin de phrase après « est égal » quand le
   // locuteur marque une courte pause. Une égalité sans membre droit n'est pas
   // une vraie frontière : on rattache donc la suite avant de découper.
-  const joinedEquality = normalizeSpeech(text)
+  const joinedEquality = normalized
     .replace(/\b(est\s+égal(?:e|er)?|égal(?:e|er)?)\s*[.!?;:]+\s*/gi, '$1 ')
     .replace(/=\s*[.!?;:]+\s*/g, '= ')
     // Dans une liste d'équations, « virgule puis P est égal... » commence une
@@ -97,7 +106,7 @@ function sanitizeModelLatex(value) {
 
 function deterministicInterpret(text, options = {}) {
   const parses = [];
-  const statements = splitStatements(text);
+  const statements = splitStatements(text, options);
   const items = statements.map((spoken) => {
     if (!hasMathIntent(spoken)) {
       parses.push({ spoken, complete: true, kind: 'text', reason: 'no_math_intent' });
