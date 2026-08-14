@@ -594,62 +594,90 @@
   async function startDictation() {
     if (dictating || !ws || ws.readyState !== 1) return;
     try {
-      microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
-      audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-      audioProcessor.onaudioprocess = (event) => {
-        if (!dictating) return;
-        const pcm = downsampleTo16k(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
-        const encoded = pcmToBase64(pcm);
-        if (dictationEngine.value === 'apple-speech') {
-          appleSpeechBridge.postMessage({ action: 'audio', pcm: encoded });
-        } else {
+      const engine = dictationEngine.value;
+
+      // Whisper pipeline: browser capture -> downsample -> server
+      if (engine === 'whisper') {
+        microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
+        audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+        audioProcessor.onaudioprocess = (event) => {
+          if (!dictating) return;
+          const pcm = downsampleTo16k(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+          const encoded = pcmToBase64(pcm);
           send({ type: 'dictation-audio', pcm: encoded });
-        }
-      };
-      microphoneSource.connect(audioProcessor);
-      audioProcessor.connect(audioContext.destination);
+        };
+        microphoneSource.connect(audioProcessor);
+        audioProcessor.connect(audioContext.destination);
+      } else {
+        // Apple Speech pipeline: don't touch navigator.mediaDevices / AudioContext.
+        // All audio will be captured natively by Swift via AVAudioEngine.
+      }
+
       dictating = true;
       dictationBtn.classList.add('listening');
       dictationBtn.setAttribute('aria-pressed', 'true');
       dictationBtn.textContent = '⏹ Arrêter';
       dictationPreview.textContent = '';
-      const engine = dictationEngine.value;
+
       showDictation('listening', engine === 'apple-speech' ? 'Apple Speech écoute…' : 'Whisper écoute…', 'Parle naturellement.');
       send({ type: 'dictation-start', engine, position: insertionPosition, selectedIds: [...selectedIds] });
-      if (engine === 'apple-speech') appleSpeechBridge.postMessage({ action: 'start', contextualStrings: scientificVocabulary });
+
+      if (engine === 'apple-speech') {
+        // Inform native bridge to start native capture + SpeechAnalyzer pipeline.
+        if (appleSpeechBridge) appleSpeechBridge.postMessage({ action: 'start', contextualStrings: scientificVocabulary });
+      }
     } catch (error) {
       showDictation('error', 'Microphone indisponible', error.message);
     }
   }
 
   function releaseMicrophone() {
-    if (audioProcessor) audioProcessor.disconnect();
-    if (microphoneSource) microphoneSource.disconnect();
-    if (microphoneStream) microphoneStream.getTracks().forEach((track) => track.stop());
-    if (audioContext) audioContext.close();
+    // Release browser-side audio resources used only by Whisper pipeline.
+    if (audioProcessor) {
+      try { audioProcessor.disconnect(); } catch (e) {}
+    }
+    if (microphoneSource) {
+      try { microphoneSource.disconnect(); } catch (e) {}
+    }
+    if (microphoneStream) {
+      try { microphoneStream.getTracks().forEach((track) => track.stop()); } catch (e) {}
+    }
+    if (audioContext) {
+      try { audioContext.close(); } catch (e) {}
+    }
     audioProcessor = microphoneSource = microphoneStream = audioContext = null;
   }
 
   function stopDictation() {
     if (!dictating) return;
+    const engine = dictationEngine.value;
     dictating = false;
-    releaseMicrophone();
+
+    if (engine === 'whisper') {
+      // Clean up browser capture pipeline
+      releaseMicrophone();
+      send({ type: 'dictation-stop' });
+    } else {
+      // Apple: ask native bridge to stop and let native side finalize
+      if (appleSpeechBridge) appleSpeechBridge.postMessage({ action: 'stop' });
+    }
+
     dictationBtn.classList.remove('listening');
     dictationBtn.setAttribute('aria-pressed', 'false');
     dictationBtn.textContent = '🎙️ Dicter';
     showDictation('transcribing', 'Transcription…');
-    if (dictationEngine.value === 'apple-speech') appleSpeechBridge.postMessage({ action: 'stop' });
-    else send({ type: 'dictation-stop' });
   }
 
   window.tableauAppleSpeechEvent = (event) => {
     if (event.type === 'transcript') {
+      // Native transcript events -> forward to server pipeline
       send({ ...event, type: 'dictation-transcript' });
     } else if (event.type === 'error') {
+      // Native error -> notify server and update UI. Do NOT touch browser microphone here.
       send({ type: 'dictation-cancel' });
-      releaseMicrophone(); dictating = false;
+      dictating = false;
       dictationBtn.classList.remove('listening'); dictationBtn.textContent = '🎙️ Dicter';
       showDictation('error', 'Dictée interrompue', event.message || 'Erreur Apple Speech');
     }
@@ -668,7 +696,9 @@
     if (msg.type === 'dictation-result') {
       insertionPosition = msg.nextPosition || insertionPosition;
       showDictation('done', 'Ajouté au tableau', msg.transcript);
-      const memory = msg.diagnostic && msg.diagnostic.transcription && msg.diagnostic.transcription.peakMemoryBytes;
+      const transcriptionDiag = msg.diagnostic && msg.diagnostic.transcription ? msg.diagnostic.transcription : null;
+      // Prefer memoryDeltaBytes (peak - baseline) for Apple Speech; fallback to peakMemoryBytes when absent
+      const memory = transcriptionDiag && (Number.isFinite(transcriptionDiag.memoryDeltaBytes) ? transcriptionDiag.memoryDeltaBytes : transcriptionDiag.peakMemoryBytes);
       const measures = [
         msg.metrics.firstPreviewMs == null ? null : `premier texte ${msg.metrics.firstPreviewMs} ms`,
         msg.metrics.transcriptionMs == null ? null : `final ${msg.metrics.transcriptionMs} ms`,

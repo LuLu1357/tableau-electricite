@@ -68,10 +68,11 @@ codex mcp list
    ```
    (ou ouvre l'app Codex desktop, si tu préfères le mode vocal — voir
    plus bas.)
-2. Ouvre ton navigateur sur **[http://127.0.0.1:5858](http://127.0.0.1:5858)**
-   — c'est ton tableau. La première fois que Codex utilise un de ses
-   outils, le serveur démarre automatiquement (pas besoin de le lancer
-   toi-même : Codex le fait en te connectant au MCP).
+2. Ouvre ton navigateur sur **[http://127.0.0.1:5859](http://127.0.0.1:5859)**
+   — c'est ton tableau. Si tu as défini `TABLEAU_PORT`, remplace 5859 par
+   cette valeur. La première fois que Codex utilise un de ses outils, le
+   serveur démarre automatiquement (pas besoin de le lancer toi-même :
+   Codex le fait en te connectant au MCP).
 3. Discute avec Codex, par exemple :
    - « Regarde le tableau et corrige mon schéma si le sens du courant
      est faux. »
@@ -170,10 +171,7 @@ npm install
 npm start
 ```
 
-Ouvre ensuite `http://127.0.0.1:5858` dans ton navigateur. Après une
-modification de `web/`, rafraîchis simplement la page. Les données présentes
-sur le tableau sont sauvegardées dans `data/tableau.json` : fais une capture
-ou une copie de ce fichier avant une modification importante.
+Ouvre ensuite `http://127.0.0.1:5859` dans ton navigateur (ou le port défini via `TABLEAU_PORT`). Après une modification de `web/`, rafraîchis simplement la page. Les données présentes sur le tableau sont sauvegardées dans `data/tableau.json` : fais une capture ou une copie de ce fichier avant une modification importante.
 
 ### Sélection multiple
 
@@ -242,7 +240,7 @@ Lance ensuite Le Tableau comme d’habitude :
 npm start
 ```
 
-Dans `http://127.0.0.1:5858` :
+Dans `http://127.0.0.1:5859` (ou le port défini via `TABLEAU_PORT`) :
 
 1. avec l’outil de sélection, clique dans une zone vide pour placer le petit
    repère d’insertion ;
@@ -316,7 +314,7 @@ finalisation après l’arrêt et la mémoire.
    comparables. Alterne l’ordre des moteurs à chaque répétition pour limiter
    l’effet d’échauffement.
 4. Fais au moins trois répétitions par moteur et consulte le détail dans
-   `http://127.0.0.1:5858/api/dictation/diagnostics`.
+   `http://127.0.0.1:5859/api/dictation/diagnostics`.
 5. Compare la transcription brute avant de comparer le LaTeX final : les deux
    moteurs partagent volontairement le même interpréteur.
 
@@ -400,3 +398,24 @@ bibliothèques open source suivantes :
 
 Les symboles de circuits (pile, résistance, etc.) suivent la
 convention IEC/CEI utilisée dans l'enseignement en Belgique/France.
+
+## Lancement développement Apple Speech
+
+Pour lancer rapidement l'environnement de développement (Node + app Swift) et tester Apple Speech localement :
+
+- Lancement normal :
+
+    ./scripts/dev-apple.sh
+
+- Relance rapide (saute tests & build) :
+
+    ./scripts/dev-apple.sh --no-tests
+
+- Avec E2E (exécute node test/apple-speech-e2e.js avant le démarrage) :
+
+    ./scripts/dev-apple.sh --e2e
+
+- Port personnalisé :
+
+    TABLEAU_PORT=5860 ./scripts/dev-apple.sh
+

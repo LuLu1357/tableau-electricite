@@ -27,7 +27,7 @@ const { renderSnapshotPNG, renderSnapshotSVG } = require('./snapshot.js');
 const { insertPdfPage, PDF_TOOL_MISSING } = require('./pdf.js');
 const TableauRender = require(path.join(__dirname, '..', 'web', 'render.js'));
 
-const PORT = process.env.TABLEAU_PORT ? Number(process.env.TABLEAU_PORT) : 5858;
+const PORT = process.env.TABLEAU_PORT ? Number(process.env.TABLEAU_PORT) : 5859;
 
 const COMPONENT_KINDS = Object.keys(TableauRender.COMPONENTS);
 const THEMES = Object.keys(TableauRender.THEME_COLORS);

@@ -3,9 +3,9 @@ import SwiftUI
 import WebKit
 
 /// URL par défaut du serveur local du Tableau.
-/// Doit correspondre au port lancé par `node server/mcp-server.js`
-/// (variable d'environnement TABLEAU_PORT, 5858 par défaut).
-private let tableauURL = URL(string: "http://127.0.0.1:5858")!
+/// Utilise la variable d'environnement TABLEAU_PORT si fournie, sinon 5859.
+private let tableauPort = Int(ProcessInfo.processInfo.environment["TABLEAU_PORT"] ?? "5859") ?? 5859
+private let tableauURL = URL(string: "http://127.0.0.1:\(tableauPort)")!
 
 struct ContentView: View {
     @State private var serverReachable: Bool? = nil
@@ -140,7 +140,7 @@ struct WebView: NSViewRepresentable {
             guard message.name == "appleSpeech",
                   message.frameInfo.securityOrigin.protocol == "http",
                   message.frameInfo.securityOrigin.host == "127.0.0.1",
-                  message.frameInfo.securityOrigin.port == 5858,
+                  message.frameInfo.securityOrigin.port == tableauPort,
                   let body = message.body as? [String: Any],
                   let action = body["action"] as? String else { return }
 
@@ -175,7 +175,7 @@ struct WebView: NSViewRepresentable {
             type: WKMediaCaptureType,
             decisionHandler: @escaping (WKPermissionDecision) -> Void
         ) {
-            if origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 5858 {
+            if origin.protocol == "http", origin.host == "127.0.0.1", origin.port == tableauPort {
                 decisionHandler(.grant)
             } else {
                 decisionHandler(.prompt)

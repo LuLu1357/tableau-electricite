@@ -54,7 +54,10 @@ const store = {
   assert.strictEqual(added[0].dictation.engine, 'apple-speech');
   assert.strictEqual(added[0].dictation.rawTranscript, 'VS est égal à VR plus VC');
   assert.strictEqual(result.diagnostic.engine, 'apple-speech');
+  // Prefer the memory delta (peak - baseline) as a diagnostic metric for Apple Speech
+  assert.strictEqual(result.diagnostic.transcription.memoryDeltaBytes, 4_000_000);
   assert.strictEqual(result.diagnostic.transcription.peakMemoryBytes, 42_000_000);
+  assert.strictEqual(result.diagnostic.transcription.baselineMemoryBytes, 38_000_000);
   assert.strictEqual(result.metrics.firstPreviewMs, 310);
   assert.strictEqual(result.metrics.transcriptionMs, 190);
   assert(messages.some((message) => message.type === 'dictation-preview'));

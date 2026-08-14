@@ -261,9 +261,18 @@ class DictationSession {
     this.send({ type: 'dictation-preview', text: transcript.text });
     this.send({ type: 'dictation-status', status: 'interpreting', label: 'Mise au propre…' });
     const interpretationStarted = performance.now();
+    // Normalize source to simple identifiers consumed by the parser ('apple'|'whisper')
+    let rawSource = transcript && transcript.engine ? transcript.engine : this.engine;
+    let normalizedSource = 'unknown';
+    if (typeof rawSource === 'string') {
+      const low = rawSource.toLowerCase();
+      if (low.includes('apple')) normalizedSource = 'apple';
+      else if (low.includes('whisper')) normalizedSource = 'whisper';
+      else normalizedSource = low;
+    }
     const interpreted = await interpretScientific(transcript.text, {
       position: this.position, elements: this.context, segments: transcript.segments,
-    });
+    }, { source: normalizedSource });
     const actions = interpreted.items.map((item, index) => {
       const y = this.position.y + index * 64;
       const dictation = {
@@ -298,6 +307,8 @@ class DictationSession {
         engine: this.engine, transcript: transcript.text, segments: transcript.segments, model: transcript.model,
         contextualVocabulary: transcript.prompt, passLatencyMs: transcript.latencyMs,
         peakMemoryBytes: transcript.peakMemoryBytes, baselineMemoryBytes: transcript.baselineMemoryBytes || null,
+        // memoryDelta is often more relevant (peak - baseline)
+        memoryDeltaBytes: (Number.isFinite(transcript.peakMemoryBytes) && Number.isFinite(transcript.baselineMemoryBytes)) ? (transcript.peakMemoryBytes - transcript.baselineMemoryBytes) : null,
       },
       interpreter: { selected: interpreted.engine, reason: interpreted.reason, confidence: interpreted.confidence, complete: interpreted.complete },
       structuredParse: interpreted.structuredParse || interpreted.routing || null,
