@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { interpretScientific, DEFAULT_MODEL } = require('./scientific-interpreter.js');
+const { interpretScientific, DEFAULT_MODEL, normalizeSpeech } = require('./scientific-interpreter.js');
 
 const execFileAsync = promisify(execFile);
 const SAMPLE_RATE = 16_000;
@@ -11,6 +11,7 @@ const MAX_SECONDS = 90;
 const PREVIEW_INTERVAL_MS = Number(process.env.TABLEAU_DICTATION_PREVIEW_MS || 1400);
 const DEFAULT_WHISPER_PROMPT = 'Mathématiques, électricité, électronique, Pythagore, Kirchhoff, Thévenin, Norton, résistance, condensateur, capacité, impédance, tension, courant, dérivée, intégrale, exposant, vecteur, VS, VR, VC.';
 const DIAGNOSTIC_LIMIT = 50;
+const LIVE_RESULTS_PATH = path.join(__dirname, '..', 'test', 'dictation-live-results.json');
 const recentDiagnostics = [];
 
 function executablePath() {
@@ -98,6 +99,23 @@ function rememberDiagnostic(entry) {
 
 function dictationDiagnostics() {
   return recentDiagnostics.slice().reverse();
+}
+
+function readLiveDictationResults() {
+  try {
+    const raw = fs.readFileSync(LIVE_RESULTS_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendLiveDictationResult(entry) {
+  const rows = readLiveDictationResults();
+  rows.push(entry);
+  fs.writeFileSync(LIVE_RESULTS_PATH, `${JSON.stringify(rows, null, 2)}\n`);
+  return rows.length;
 }
 
 function captureCorpusSample(pcm, diagnostic) {
@@ -250,11 +268,28 @@ class DictationSession {
     if (!this.externalTranscript || !this.externalTranscript.text) throw new Error('Apple Speech n’a reconnu aucun texte.');
     this.finishing = true;
     this.send({ type: 'dictation-status', status: 'interpreting', label: 'Mise au propre…' });
-    return this.interpretAndInsert(this.externalTranscript, {
+    const result = await this.interpretAndInsert(this.externalTranscript, {
       audioMs: this.externalTranscript.audioMs,
       transcriptionMs: this.externalTranscript.latencyMs,
       audioPipeline: { sampleRate: SAMPLE_RATE, format: 'pcm_s16le_mono', browserResampling: 'window-average', browserEchoCancellation: true, browserNoiseSuppression: true, nativeBridge: 'WKScriptMessageHandler' },
     });
+    const finalMs = Number.isFinite(result.metrics && result.metrics.totalAfterStopMs) ? result.metrics.totalAfterStopMs : null;
+    const finalEntry = {
+      timestamp: new Date().toISOString(),
+      source: 'apple',
+      transcriptionAppleSpeechBrute: this.externalTranscript.text,
+      transcriptionNettoyee: normalizeSpeech(this.externalTranscript.text),
+      resultatLatexObtenu: (result.items || []).map((item) => item.latex || item.text).join(' '),
+      audioMs: Number.isFinite(this.externalTranscript.audioMs) ? this.externalTranscript.audioMs : null,
+      firstTextMs: Number.isFinite(this.firstPreviewMs) ? this.firstPreviewMs : (Number.isFinite(this.externalTranscript.firstTextMs) ? this.externalTranscript.firstTextMs : null),
+      transcriptionMs: Number.isFinite(this.externalTranscript.latencyMs) ? this.externalTranscript.latencyMs : (Number.isFinite(options.transcriptionMs) ? options.transcriptionMs : null),
+      finalMs,
+      memoryDeltaBytes: (Number.isFinite(this.externalTranscript.peakMemoryBytes) && Number.isFinite(this.externalTranscript.baselineMemoryBytes))
+        ? (this.externalTranscript.peakMemoryBytes - this.externalTranscript.baselineMemoryBytes)
+        : null,
+    };
+    appendLiveDictationResult(finalEntry);
+    return result;
   }
 
   async interpretAndInsert(transcript, options) {

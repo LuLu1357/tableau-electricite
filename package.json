@@ -7,10 +7,11 @@
   },
   "scripts": {
     "start": "node server/mcp-server.js",
-    "test": "node test/scientific-dictation.js && node test/apple-speech-pipeline.js && node test/apple-vs-whisper-tokenize.js && node test/test-mcp-client.js && node test/browser-selection.js",
+    "test": "node test/scientific-dictation.js && node test/apple-speech-pipeline.js && node test/apple-vs-whisper-tokenize.js && node test/test-mcp-client.js && node test/dictation-live-log.js && node test/browser-selection.js",
     "test:dictation:local": "node test/local-dictation-smoke.js",
     "benchmark:dictation": "node test/dictation-corpus-benchmark.js",
     "benchmark-dictation": "node test/dictation-benchmark.js",
+    "clear-dictation-live": "node -e \"const fs=require('fs'); const p='test/dictation-live-results.json'; fs.writeFileSync(p, '[]\\n'); console.log('Live dictation log reset');\"",
     "test:selection": "node test/browser-selection.js"
   },
   "keywords": ["mcp", "codex", "electricite", "tableau", "katex"],
