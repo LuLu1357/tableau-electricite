@@ -304,6 +304,7 @@ function compactDictation(dictation) {
   return {
     rawTranscript: dictation.rawTranscript,
     spoken: dictation.spoken,
+    engine: dictation.engine,
     ambiguity: dictation.ambiguity || null,
     interpreter: dictation.interpreter,
     interpreterReason: dictation.interpreterReason,

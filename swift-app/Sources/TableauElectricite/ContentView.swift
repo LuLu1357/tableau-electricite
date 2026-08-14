@@ -100,7 +100,17 @@ struct WebView: NSViewRepresentable {
     let reloadToken: UUID
 
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero)
+        let configuration = WKWebViewConfiguration()
+        let appleSpeechAvailable: Bool
+        if #available(macOS 26.0, *) { appleSpeechAvailable = true } else { appleSpeechAvailable = false }
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "window.tableauAppleSpeechAvailable = \(appleSpeechAvailable ? "true" : "false");",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        configuration.userContentController.add(context.coordinator, name: "appleSpeech")
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.webView = webView
         webView.uiDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         return webView
@@ -118,8 +128,42 @@ struct WebView: NSViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator: NSObject, WKUIDelegate {
+    @MainActor
+    final class Coordinator: NSObject, WKUIDelegate, WKScriptMessageHandler {
         var lastToken: UUID?
+        weak var webView: WKWebView?
+        private lazy var appleSpeech = AppleSpeechController { [weak self] event in
+            self?.sendToPage(event)
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "appleSpeech",
+                  message.frameInfo.securityOrigin.protocol == "http",
+                  message.frameInfo.securityOrigin.host == "127.0.0.1",
+                  message.frameInfo.securityOrigin.port == 5858,
+                  let body = message.body as? [String: Any],
+                  let action = body["action"] as? String else { return }
+
+            switch action {
+            case "start":
+                appleSpeech.start(contextualStrings: body["contextualStrings"] as? [String] ?? [])
+            case "audio":
+                guard let encoded = body["pcm"] as? String, let data = Data(base64Encoded: encoded) else { return }
+                appleSpeech.append(data)
+            case "stop":
+                appleSpeech.stop()
+            case "cancel":
+                appleSpeech.cancel()
+            default:
+                break
+            }
+        }
+
+        private func sendToPage(_ event: AppleSpeechEvent) {
+            guard let data = try? JSONEncoder().encode(event),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            webView?.evaluateJavaScript("window.tableauAppleSpeechEvent?.(\(json))")
+        }
 
         // La dictée reste une fonctionnalité de la page web locale. WKWebView
         // exige toutefois que l'hôte natif tranche explicitement la demande

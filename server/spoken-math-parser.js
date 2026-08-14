@@ -8,9 +8,21 @@ const NUMBER_WORDS = new Map(Object.entries({
 }));
 
 const DISCOURSE_PREFIXES = [
+  /^d(?:['’]\s*|\s+)abord\s+/i,
+  // Variante réellement produite par Whisper pour « donc » dans une dictée
+  // longue. On ne la retire que devant un Z explicitement dicté.
+  /^d[eè]wer\s+(?=(?:Z|zède)\b)/i,
+  /^ensuite\s+(?:(?:[aà]\s+la\s+r[ée]sonance|pour\s+le\s+condensateur|pour\s+la\s+bobine)\s+)?/i,
+  /^pour\s+le\s+condensateur\s+/i,
+  /^pour\s+la\s+bobine\s+/i,
+  /^enfin\s+/i,
+  /^(?:et\s+)?finalement\s+/i,
+  /^puis\s+(?:le\s+r[ée]gime\s+sinuso[iï]dal\s+)?/i,
   /^(?:donc\s+)?l[aà]\s+je\s+mets\s+/i,
+  /^(?:et\s+)?donc\s+(?:je\s+disais\s+)?/i,
+  /^je\s+disais\s+/i,
   /^ok\s+maintenant\s+/i,
-  /^attends?\s+non\s+je\s+voulais\s+dire\s+/i,
+  /^attends?\s+non(?:\s*,\s*|\s+)je\s+voulais\s+dire\s+/i,
 ];
 
 function fold(value) {
@@ -18,7 +30,8 @@ function fold(value) {
 }
 
 function prepareSpeech(raw) {
-  let text = String(raw || '').trim().replace(/\s+/g, ' ');
+  let text = String(raw || '').trim().replace(/\s+/g, ' ')
+    .replace(/[\s,;:-]+pardon[.!?]*$/i, '');
   let prefix = null;
   for (const pattern of DISCOURSE_PREFIXES) {
     const match = pattern.exec(text);
@@ -34,11 +47,39 @@ function prepareSpeech(raw) {
 function tokenize(raw) {
   // Whisper conserve souvent la casse des symboles explicitement épelés.
   // On garde C distinct de la variable polynomiale c.
-  let text = fold(String(raw).replace(/\bC\b/g, ' capc '))
+  const joinedVoltageSymbols = String(raw).replace(/\b([VZ])\s+([RSCL])(?:\s+(\d+))?\b/g, (_, base, symbol, index) => `${base}${symbol}${index || ''}`);
+  let text = fold(joinedVoltageSymbols
+    .replace(/\bC\b/g, ' capc ')
+    .replace(/\bL\b/g, ' capl ')
+    .replace(/\bP\b/g, ' capp ')
+    .replace(/\bU\b/g, ' capu ')
+    .replace(/\bI\b/g, ' capi ')
+    .replace(/\bE\b/g, ' cape ')
+    .replace(/\bZ\b/g, ' capz '))
     .replace(/[’']/g, ' ')
-    .replace(/\best\s+egal(?:e)?\s+a\b/g, ' = ')
-    .replace(/\begal(?:e)?\s+a\b/g, ' = ')
-    .replace(/\begal(?:e)?\b/g, ' = ')
+    .replace(/\bla\s+puissance\s+capp\b/g, ' capp ')
+    .replace(/\bla\s+tension\s+capu\b/g, ' capu ')
+    .replace(/\b(?:la\s+)?resistance\s+r\b/g, ' r ')
+    .replace(/\ble\s+courant\s+capi\b/g, ' capi ')
+    .replace(/\b(?:z|capz)\s+majuscule\b/g, ' capz ')
+    .replace(/\bzede\b/g, ' capz ')
+    .replace(/\br\s+equivalent(?:e)?\b/g, ' req ')
+    .replace(/\bd\s+erivee?\s+de\b/g, ' derivee de ')
+    .replace(/\bderive\b/g, ' derivee ')
+    .replace(/\bcosineus\b/g, ' cosinus ')
+    .replace(/\bcocinus\b/g, ' cosinus ')
+    .replace(/\bcapu\s+de\s+t\b/g, ' uoft ')
+    .replace(/\bcapu\s+max\b/g, ' umax ')
+    .replace(/\b(?:un|1)\s+sur\s+(capc|[a-z])\s+fois\s+integrale\b/g, ' reciprocal $1 fois integrale ')
+    .replace(/\bun\s+demi\b/g, ' half ')
+    .replace(/\bpuis\b/g, ' plus ')
+    // Whisper Small écrit parfois « est égaler » lorsqu'on prononce
+    // naturellement « est égal à ». Cette variante est phonétiquement
+    // équivalente, sans nécessiter d'inventer un membre de l'égalité.
+    .replace(/\best\s+egal(?:e|er)?\s+a\b/g, ' = ')
+    .replace(/\best\s+egal(?:e|er)?\b/g, ' = ')
+    .replace(/\begal(?:e|er)?\s+a\b/g, ' = ')
+    .replace(/\begal(?:e|er)?\b/g, ' = ')
     .replace(/\bau\s+carre\b/g, ' squared ')
     .replace(/\bau\s+cube\b/g, ' cubed ')
     .replace(/\bouvre(?:z)?\s+(?:la\s+)?parenthese\b/g, ' ( ')
@@ -111,7 +152,18 @@ class Parser {
     if (!left) return null;
     while (this.peek() === 'plus' || this.peek() === 'moins') {
       const operator = this.take();
-      const right = this.parseMultiply();
+      let right;
+      // Dans « omega L moins un sur omega C », « un sur ... » est un
+      // terme réciproque. Cela ne change pas la convention générale
+      // « A plus B sur C » = (A+B)/C lorsque le numérateur n'est pas 1.
+      if (this.peek() === '1' && this.peek(1) === 'sur') {
+        this.take('1');
+        this.take('sur');
+        const denominator = this.parseMultiply();
+        right = denominator && node('Divide', { left: node('Number', { value: '1' }), right: denominator });
+      } else {
+        right = this.parseMultiply();
+      }
       if (!right) return null;
       left = node(operator === 'plus' ? 'Add' : 'Subtract', { left, right });
     }
@@ -166,7 +218,7 @@ class Parser {
 
   startsPrimary(token) {
     if (!token || ['=', ')', 'plus', 'moins', 'fois', 'sur', 'par'].includes(token)) return false;
-    return token === '(' || token === 'racine' || token === 'derivee' || /^\d+(?:[.,]\d+)?$/.test(token) || this.isSymbolStart(token);
+    return token === '(' || token === 'racine' || token === 'derivee' || token === 'integrale' || token === 'cosinus' || token === 'reciprocal' || token === 'half' || /^\d+(?:[.,]\d+)?$/.test(token) || this.isSymbolStart(token);
   }
 
   parsePrimary() {
@@ -182,6 +234,18 @@ class Parser {
       return value && node('Root', { value });
     }
     if (this.peek() === 'derivee') return this.parseDerivative();
+    if (this.peek() === 'integrale') return this.parseIntegral();
+    if (this.peek() === 'cosinus') {
+      this.take('cosinus');
+      if (this.peek() === 'de') this.take('de');
+      const value = this.parseAddSub();
+      return value && node('Function', { name: 'cos', value });
+    }
+    if (this.take('reciprocal')) {
+      const denominator = this.parseSymbol();
+      return denominator && node('Divide', { left: node('Number', { value: '1' }), right: denominator });
+    }
+    if (this.take('half')) return node('Divide', { left: node('Number', { value: '1' }), right: node('Number', { value: '2' }) });
     if (/^\d+(?:[.,]\d+)?$/.test(this.peek() || '')) return node('Number', { value: this.take().replace(',', '.') });
     return this.parseSymbol();
   }
@@ -190,12 +254,26 @@ class Parser {
     this.take('derivee');
     if (!this.take('de')) return null;
     const value = this.parseSymbol();
-    if (!value || !this.take('par') || !this.take('rapport') || !this.take('au') || !this.take('temps')) return null;
+    if (!value || !this.take('par') || !this.take('rapport')) return null;
+    if (!['au', 'aux'].includes(this.peek())) return null;
+    this.take();
+    if (!this.take('temps')) return null;
     return node('Derivative', { value, variable: node('Symbol', { name: 't' }) });
   }
 
+  parseIntegral() {
+    this.take('integrale');
+    if (this.peek() === 'de') this.take('de');
+    const value = this.parseAddSub();
+    if (!value || !this.take('par') || !this.take('rapport')) return null;
+    if (!['au', 'aux'].includes(this.peek())) return null;
+    this.take();
+    if (!this.take('temps')) return null;
+    return node('Integral', { value, variable: node('Symbol', { name: 't' }) });
+  }
+
   isSymbolStart(token) {
-    return token === 'delta' || token === 'capc' || /^[a-z]$/.test(token || '') || /^(?:v[src]|r\d+|v[rcs]\d*|d[a-z])$/.test(token || '');
+    return ['delta', 'omega', 'phi', 'uoft', 'umax'].includes(token) || ['capc', 'capl', 'capp', 'capu', 'capi', 'cape', 'capz', 'req'].includes(token) || /^[a-z]$/.test(token || '') || /^(?:v[rscl]|z[cl]|r\d+|v[rcsl]\d*|d[a-z])$/.test(token || '');
   }
 
   parseSymbol() {
@@ -203,8 +281,28 @@ class Parser {
     if (!this.isSymbolStart(token)) return null;
     this.take();
     if (token === 'delta') return node('Symbol', { name: 'Delta' });
+    if (token === 'omega') {
+      const subscript = /^\d+$/.test(this.peek() || '') ? this.take() : undefined;
+      return node('Symbol', { name: 'omega', subscript });
+    }
+    if (token === 'phi') return node('Symbol', { name: 'phi' });
+    if (token === 'uoft') return node('AppliedSymbol', { name: 'U', variable: node('Symbol', { name: 't' }) });
+    if (token === 'umax') return node('Symbol', { name: 'U', subscript: 'max' });
     if (token === 'capc') return node('Symbol', { name: 'C' });
-    if (/^v[src]$/.test(token)) return node('Symbol', { name: 'V', subscript: token.slice(1) === 's' ? 's' : token.slice(1).toUpperCase() });
+    if (token === 'capl') return node('Symbol', { name: 'L' });
+    if (token === 'capp') return node('Symbol', { name: 'P' });
+    if (token === 'capu') return node('Symbol', { name: 'U' });
+    if (token === 'capi') return node('Symbol', { name: 'I' });
+    if (token === 'cape') return node('Symbol', { name: 'E' });
+    if (token === 'capz') return node('Symbol', { name: 'Z' });
+    if (token === 'req') return node('Symbol', { name: 'R', subscript: 'eq' });
+    if (token === 'zc') return node('Symbol', { name: 'Z', subscript: 'C' });
+    if (token === 'zl') return node('Symbol', { name: 'Z', subscript: 'L' });
+    if (/^v[rscl]$/.test(token)) {
+      let subscript = token.slice(1) === 's' ? 's' : token.slice(1).toUpperCase();
+      if (/^\d+$/.test(this.peek() || '')) subscript += this.take();
+      return node('Symbol', { name: 'V', subscript });
+    }
     if (/^v[rcs]\d+$/.test(token)) return node('Symbol', { name: 'V', subscript: token.slice(1).toUpperCase() });
     if (/^r\d+$/.test(token)) return node('Symbol', { name: 'R', subscript: token.slice(1) });
     if (/^d[a-z]$/.test(token)) return node('DifferentialSymbol', { name: token[1].toUpperCase() === 'T' ? 't' : token[1].toUpperCase() });
@@ -232,18 +330,21 @@ function renderAst(ast, parentPrecedence = 0) {
     case 'Number': value = ast.value; break;
     case 'Symbol': {
       const index = ast.subscript ? (ast.subscript.length === 1 ? `_${ast.subscript}` : `_{${ast.subscript}}`) : '';
-      value = ast.name === 'Delta' ? '\\Delta' : `${ast.name}${index}`;
+      value = ast.name === 'Delta' ? '\\Delta' : ast.name === 'omega' ? `\\omega${index}` : ast.name === 'phi' ? '\\phi' : `${ast.name}${index}`;
       break;
     }
+    case 'AppliedSymbol': value = `${ast.name}\\left(${renderAst(ast.variable)}\\right)`; break;
     case 'DifferentialSymbol': value = `d${ast.name}`; break;
     case 'Equality': value = `${renderAst(ast.left, own)} = ${renderAst(ast.right, own)}`; break;
-    case 'Add': value = `${renderAst(ast.left, own)} + ${renderAst(ast.right, own)}`; break;
-    case 'Subtract': value = `${renderAst(ast.left, own)} - ${renderAst(ast.right, own + 1)}`; break;
+    case 'Add': value = `${renderAst(ast.left, ast.left.type === 'Divide' ? 0 : own)} + ${renderAst(ast.right, ast.right.type === 'Divide' ? 0 : own)}`; break;
+    case 'Subtract': value = `${renderAst(ast.left, ast.left.type === 'Divide' ? 0 : own)} - ${renderAst(ast.right, ast.right.type === 'Divide' ? 0 : own + 1)}`; break;
     case 'Multiply': {
-      const left = renderAst(ast.left, own);
-      const right = renderAst(ast.right, own);
-      const dot = ast.left.type === 'Number' && ast.right.type === 'Number' ? ' \\cdot ' : '';
-      value = `${left}${dot}${right}`;
+      const left = renderAst(ast.left, ast.left.type === 'Divide' ? 0 : own);
+      const right = renderAst(ast.right, ast.right.type === 'Divide' ? 0 : own);
+      const separator = ast.left.type === 'Number' && ast.right.type === 'Number'
+        ? ' \\cdot '
+        : (/\\[A-Za-z]+$/.test(left) ? ' ' : '');
+      value = `${left}${separator}${right}`;
       break;
     }
     case 'Divide': value = `\\frac{${renderAst(ast.left)}}{${renderAst(ast.right)}}`; break;
@@ -253,8 +354,10 @@ function renderAst(ast, parentPrecedence = 0) {
       break;
     }
     case 'Negate': value = `-${renderAst(ast.value, own)}`; break;
-    case 'Root': value = `\\sqrt{${renderAst(ast.value)}}`; break;
+    case 'Root': value = `\\sqrt{${renderAst(ast.value.type === 'Group' ? ast.value.value : ast.value)}}`; break;
     case 'Derivative': value = `\\frac{d${renderAst(ast.value)}}{d${renderAst(ast.variable)}}`; break;
+    case 'Integral': value = `\\int ${renderAst(ast.value)}\\,d${renderAst(ast.variable)}`; break;
+    case 'Function': value = `\\${ast.name}\\left(${renderAst(ast.value)}\\right)`; break;
     case 'Group': value = `\\left(${renderAst(ast.value)}\\right)`; break;
     default: throw new Error(`Nœud AST inconnu: ${ast.type}`);
   }

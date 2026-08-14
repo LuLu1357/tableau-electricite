@@ -45,6 +45,11 @@
       </div>
 
       <div class="tool-group dictation-group">
+        <label class="dictation-engine-label" for="dictationEngine">Moteur local</label>
+        <select id="dictationEngine" class="dictation-engine">
+          <option value="apple-speech">Apple Speech</option>
+          <option value="whisper">Whisper</option>
+        </select>
         <button class="tool dictation-btn" id="dictationBtn" title="Dicter à la position choisie (⌥ Espace)" aria-pressed="false">🎙️ Dicter</button>
         <div class="dictation-hint" id="dictationHint">Clique dans le tableau, puis dicte.</div>
       </div>

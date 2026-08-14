@@ -104,8 +104,9 @@ function startHttpServer(store, port) {
               send: (payload) => { if (ws.readyState === 1) ws.send(JSON.stringify(payload)); },
               position: msg.position,
               selectedIds: msg.selectedIds,
+              engine: msg.engine,
             });
-            ws.send(JSON.stringify({ type: 'dictation-status', status: 'listening', label: 'Écoute…' }));
+            ws.send(JSON.stringify({ type: 'dictation-status', status: 'listening', label: msg.engine === 'apple-speech' ? 'Apple Speech écoute…' : 'Whisper écoute…' }));
             break;
           case 'dictation-audio':
             if (dictation) dictation.addAudio(msg.pcm);
@@ -119,6 +120,21 @@ function startHttpServer(store, port) {
               .catch((error) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'dictation-error', message: error.message })); });
             break;
           }
+          case 'dictation-transcript': {
+            if (!dictation) break;
+            dictation.addExternalTranscript(msg);
+            if (msg.isFinal) {
+              const finishing = dictation;
+              dictation = null;
+              finishing.finish()
+                .then((result) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'dictation-result', ...result })); })
+                .catch((error) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'dictation-error', message: error.message })); });
+            }
+            break;
+          }
+          case 'dictation-cancel':
+            dictation = null;
+            break;
           default:
             break;
         }

@@ -154,7 +154,7 @@ function compactContext(store, selectedIds, position) {
 }
 
 class DictationSession {
-  constructor({ store, send, position, selectedIds }) {
+  constructor({ store, send, position, selectedIds, engine = 'whisper' }) {
     this.store = store;
     this.send = send;
     this.position = position || { x: 80, y: 100 };
@@ -171,9 +171,12 @@ class DictationSession {
     this.firstPreviewMs = null;
     this.context = compactContext(this.store, this.selectedIds, this.position);
     this.whisperPrompt = scientificPrompt(this.context);
+    this.engine = engine === 'apple-speech' ? 'apple-speech' : 'whisper';
+    this.externalTranscript = null;
   }
 
   addAudio(base64) {
+    if (this.engine !== 'whisper') return;
     const chunk = Buffer.from(base64 || '', 'base64');
     if (!chunk.length) return;
     if (this.bytes + chunk.length > SAMPLE_RATE * 2 * MAX_SECONDS) throw new Error(`La dictée est limitée à ${MAX_SECONDS} secondes.`);
@@ -203,7 +206,26 @@ class DictationSession {
     });
   }
 
+  addExternalTranscript(transcript) {
+    if (this.engine !== 'apple-speech') return;
+    const text = typeof transcript.text === 'string' ? transcript.text.trim() : '';
+    if (!text) return;
+    this.externalTranscript = {
+      text,
+      segments: Array.isArray(transcript.segments) ? transcript.segments : [],
+      model: transcript.model || 'SpeechTranscriber',
+      prompt: Array.isArray(transcript.contextualStrings) ? transcript.contextualStrings.join(', ') : null,
+      latencyMs: Number.isFinite(transcript.transcriptionMs) ? transcript.transcriptionMs : null,
+      peakMemoryBytes: Number.isFinite(transcript.peakMemoryBytes) ? transcript.peakMemoryBytes : null,
+      baselineMemoryBytes: Number.isFinite(transcript.baselineMemoryBytes) ? transcript.baselineMemoryBytes : null,
+      audioMs: Number.isFinite(transcript.audioMs) ? transcript.audioMs : null,
+    };
+    if (this.firstPreviewMs == null && Number.isFinite(transcript.firstTextMs)) this.firstPreviewMs = transcript.firstTextMs;
+    this.send({ type: 'dictation-preview', text });
+  }
+
   async finish() {
+    if (this.engine !== 'whisper') return this.finishExternal();
     if (this.bytes < SAMPLE_RATE) throw new Error('Aucune parole exploitable reçue.');
     this.finishing = true;
     this.previewQueued = false;
@@ -215,6 +237,27 @@ class DictationSession {
       ? this.lastPreview.result
       : await transcribePcm(pcm, { prompt: this.whisperPrompt });
     if (!transcript.text) throw new Error('Whisper n’a reconnu aucun texte.');
+    return this.interpretAndInsert(transcript, {
+      audioMs: Math.round((this.bytes / 2 / SAMPLE_RATE) * 1000),
+      transcribeStarted,
+      transcriptionMs: Math.round(performance.now() - transcribeStarted),
+      audioPipeline: { sampleRate: SAMPLE_RATE, format: 'pcm_s16le_mono', browserResampling: 'window-average', browserEchoCancellation: true, browserNoiseSuppression: true },
+      pcm,
+    });
+  }
+
+  async finishExternal() {
+    if (!this.externalTranscript || !this.externalTranscript.text) throw new Error('Apple Speech n’a reconnu aucun texte.');
+    this.finishing = true;
+    this.send({ type: 'dictation-status', status: 'interpreting', label: 'Mise au propre…' });
+    return this.interpretAndInsert(this.externalTranscript, {
+      audioMs: this.externalTranscript.audioMs,
+      transcriptionMs: this.externalTranscript.latencyMs,
+      audioPipeline: { sampleRate: SAMPLE_RATE, format: 'pcm_s16le_mono', browserResampling: 'window-average', browserEchoCancellation: true, browserNoiseSuppression: true, nativeBridge: 'WKScriptMessageHandler' },
+    });
+  }
+
+  async interpretAndInsert(transcript, options) {
     this.send({ type: 'dictation-preview', text: transcript.text });
     this.send({ type: 'dictation-status', status: 'interpreting', label: 'Mise au propre…' });
     const interpretationStarted = performance.now();
@@ -231,6 +274,7 @@ class DictationSession {
         interpreter: interpreted.engine,
         interpreterReason: interpreted.reason,
         structuredParse: interpreted.structuredParse || interpreted.routing || null,
+        engine: this.engine,
       };
       const element = item.type === 'equation'
         ? { type: 'equation', latex: item.latex, x: this.position.x, y, source: 'eleve', dictation }
@@ -240,26 +284,32 @@ class DictationSession {
     const result = this.store.applyBatch(actions);
     const nextPosition = { x: this.position.x, y: this.position.y + Math.max(actions.length, 1) * 64 };
     const metrics = {
-      audioMs: Math.round((this.bytes / 2 / SAMPLE_RATE) * 1000),
+      audioMs: options.audioMs,
       firstPreviewMs: this.firstPreviewMs,
-      transcriptionMs: Math.round(interpretationStarted - transcribeStarted),
+      transcriptionMs: options.transcriptionMs == null ? null : Math.round(options.transcriptionMs),
       interpretationMs: Math.round(performance.now() - interpretationStarted),
-      totalAfterStopMs: Math.round(performance.now() - transcribeStarted),
+      totalAfterStopMs: options.transcribeStarted == null ? Math.round(performance.now() - interpretationStarted) : Math.round(performance.now() - options.transcribeStarted),
     };
     const diagnostic = {
       at: new Date().toISOString(), audioDurationMs: metrics.audioMs,
-      audioPipeline: { sampleRate: SAMPLE_RATE, format: 'pcm_s16le_mono', browserResampling: 'window-average', browserEchoCancellation: true, browserNoiseSuppression: true },
-      whisper: {
-        transcript: transcript.text, segments: transcript.segments, model: transcript.model,
-        prompt: transcript.prompt, passLatencyMs: transcript.latencyMs, peakMemoryBytes: transcript.peakMemoryBytes,
+      engine: this.engine,
+      audioPipeline: options.audioPipeline,
+      transcription: {
+        engine: this.engine, transcript: transcript.text, segments: transcript.segments, model: transcript.model,
+        contextualVocabulary: transcript.prompt, passLatencyMs: transcript.latencyMs,
+        peakMemoryBytes: transcript.peakMemoryBytes, baselineMemoryBytes: transcript.baselineMemoryBytes || null,
       },
       interpreter: { selected: interpreted.engine, reason: interpreted.reason, confidence: interpreted.confidence, complete: interpreted.complete },
       structuredParse: interpreted.structuredParse || interpreted.routing || null,
       output: interpreted.items,
       latencies: metrics,
     };
+    if (this.engine === 'whisper') diagnostic.whisper = {
+      transcript: transcript.text, segments: transcript.segments, model: transcript.model,
+      prompt: transcript.prompt, passLatencyMs: transcript.latencyMs, peakMemoryBytes: transcript.peakMemoryBytes,
+    };
     rememberDiagnostic(diagnostic);
-    diagnostic.corpusCapture = captureCorpusSample(pcm, diagnostic);
+    if (options.pcm) diagnostic.corpusCapture = captureCorpusSample(options.pcm, diagnostic);
     return {
       transcript: transcript.text,
       items: interpreted.items,

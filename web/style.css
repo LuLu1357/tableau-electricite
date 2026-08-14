@@ -143,6 +143,8 @@ html, body {
 .tool.info-btn { width: 100%; justify-content: center; font-size: 13px; margin-top: auto; }
 
 .dictation-group { border-top: 1px solid var(--border); padding-top: 12px; }
+.dictation-engine-label { width: 100%; color: var(--muted); font-size: 11px; }
+.dictation-engine { width: 100%; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--ink); padding: 0 7px; }
 .tool.dictation-btn { width: 100%; font-size: 14px; gap: 6px; }
 .tool.dictation-btn.listening { background: var(--danger); border-color: var(--danger); color: #fff; }
 .tool.dictation-btn:disabled { opacity: .48; cursor: not-allowed; }

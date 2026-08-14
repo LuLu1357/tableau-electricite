@@ -2,6 +2,7 @@
 // Les règles ne sont choisies que lorsqu'un parse AST complet est démontré.
 
 const { parseSpokenMath } = require('./spoken-math-parser.js');
+const katex = require('../web/vendor/katex/katex.min.js');
 
 const DEFAULT_MODEL = process.env.TABLEAU_LOCAL_MODEL || 'qwen3:1.7b';
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
@@ -14,12 +15,63 @@ function normalizeSpeech(text) {
   return String(text || '').trim().replace(/\s+/g, ' ');
 }
 
+function stripKnownAsrBoilerplate(text) {
+  // whisper.cpp peut halluciner cette signature de sous-titrage dans le
+  // silence de fin. Elle ne provient jamais d'une dictée scientifique.
+  return normalizeSpeech(text).replace(
+    /\s*[.!?;:]?\s*sous[- ]titres\s+r[ée]alis[ée]s\s+par\s+la\s+communaut[ée]\s+d['’]amara(?:\.org)?\b.*$/i,
+    '',
+  ).trim();
+}
+
+function extractLatestSelfCorrection(text) {
+  const speech = normalizeSpeech(text);
+  const marker = /\b(?:attends?(?:\s+non)?|non|en\s+fait|je\s+me\s+reprends)(?:\s*,?\s*(?:je\s+voulais\s+dire\s+)?)?/gi;
+  let match;
+  let latest = null;
+  while ((match = marker.exec(speech))) {
+    const remainder = speech.slice(marker.lastIndex).replace(/^[\s,;:.!?-]+/, '').trim();
+    if (hasMathIntent(remainder)) latest = { start: match.index, end: marker.lastIndex, remainder };
+  }
+  if (!latest) return speech;
+
+  const before = speech.slice(0, latest.start);
+  // Dans un raisonnement, un connecteur marque le début de l'étape en cours :
+  // la reprise ne doit pas effacer les étapes précédentes.
+  const cues = [...before.matchAll(/\b(?:d['’]?\s*abord|ensuite|donc|enfin)\b/gi)];
+  let scopeStart = cues.length ? cues[cues.length - 1].index : 0;
+  if (!cues.length) {
+    const boundaries = [...before.matchAll(/[.!?;]+\s*/g)];
+    if (boundaries.length) {
+      const last = boundaries[boundaries.length - 1];
+      const markerStartsNewStatement = before.slice(last.index + last[0].length).trim() === '';
+      const chosen = markerStartsNewStatement ? boundaries[boundaries.length - 2] : last;
+      scopeStart = chosen ? chosen.index + chosen[0].length : 0;
+    }
+  }
+  return normalizeSpeech(`${speech.slice(0, scopeStart)} ${latest.remainder}`);
+}
+
 function splitStatements(text) {
-  return normalizeSpeech(text).split(/(?:[.!?;]+|\n+)/).map((part) => part.trim()).filter(Boolean);
+  // Whisper insère parfois une fin de phrase après « est égal » quand le
+  // locuteur marque une courte pause. Une égalité sans membre droit n'est pas
+  // une vraie frontière : on rattache donc la suite avant de découper.
+  const joinedEquality = normalizeSpeech(text)
+    .replace(/\b(est\s+égal(?:e|er)?|égal(?:e|er)?)\s*[.!?;:]+\s*/gi, '$1 ')
+    .replace(/=\s*[.!?;:]+\s*/g, '= ')
+    // Dans une liste d'équations, « virgule puis P est égal... » commence une
+    // nouvelle formule. Un « puis » interne à une formule reste un plus oral.
+    .replace(/,\s*puis\s+(?=(?:[A-Z](?:\s+[A-Z])?|[a-zA-Z]+)\s+est\s+égal(?:e|er)?\b)/g, '. ')
+    // Sur une réflexion longue, Whisper omet parfois la ponctuation entre
+    // une conclusion et l'équation suivante. Ces connecteurs indiquent une
+    // vraie nouvelle ligne sans modifier le contenu scientifique.
+    .replace(/\s+donc\s+(?=(?:Z|zède)\b)/gi, '. donc ')
+    .replace(/\s+enfin\s+(?=(?:(?:le\s+courant\s+)?I|(?:Z|zède)(?:\s+majuscule)?)\b)/gi, '. enfin ');
+  return joinedEquality.split(/(?:[.!?;]+|\n+)/).map((part) => part.trim()).filter(Boolean);
 }
 
 function hasMathIntent(text) {
-  return /(?:\b(?:egal|egale|plus|moins|fois|sur|exposant|carre|cube|racine|derivee|parenthese)\b|=)/i
+  return /(?:\b(?:egal|egale|egaler|plus|moins|fois|sur|exposant|carre|cube|racine|derivee|integrale|cosinus|parenthese)\b|=)/i
     .test(text.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
 }
 
@@ -27,9 +79,26 @@ function plainTextItem(spoken, ambiguity = null) {
   return { type: 'text', text: spoken.charAt(0).toUpperCase() + spoken.slice(1), spoken, ambiguity };
 }
 
+function sanitizeModelLatex(value) {
+  const latex = String(value || '')
+    // Un modèle peut renvoyer du JSON avec « \frac » au lieu de « \\frac » :
+    // JSON.parse transforme alors \f, \b et \t en caractères de contrôle.
+    .replace(/\u0008/g, '\\b')
+    .replace(/\u000c/g, '\\f')
+    .replace(/\t/g, '\\t')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\\bigint\b/g, '\\int')
+    .replace(/∫/g, '\\int ').replace(/Δ/g, '\\Delta ').replace(/²/g, '^2').replace(/³/g, '^3')
+    .trim();
+  if (!latex || /[\u0000-\u001f\u007f]/.test(latex)) throw new Error('LaTeX local corrompu');
+  katex.renderToString(latex, { throwOnError: true, displayMode: false });
+  return latex;
+}
+
 function deterministicInterpret(text) {
   const parses = [];
-  const items = splitStatements(text).map((spoken) => {
+  const statements = splitStatements(text);
+  const items = statements.map((spoken) => {
     if (!hasMathIntent(spoken)) {
       parses.push({ spoken, complete: true, kind: 'text', reason: 'no_math_intent' });
       return plainTextItem(spoken);
@@ -44,6 +113,7 @@ function deterministicInterpret(text) {
     }
     return { type: 'equation', latex: parsed.latex, spoken, ambiguity: parsed.ambiguity || null };
   });
+  if (items.length === 1) items[0].spoken = normalizeSpeech(text);
   const complete = parses.every((parse) => parse.complete);
   return {
     items,
@@ -86,8 +156,15 @@ function sanitizeResult(value, rawText) {
   const sourceItems = value && Array.isArray(value.items) ? value.items : [];
   const items = sourceItems.map((item) => {
     const spoken = normalizeSpeech(item.spoken || rawText);
+    const comparable = (input) => normalizeSpeech(input).normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const rawComparable = comparable(rawText);
+    const spokenComparable = comparable(spoken);
+    // Le contexte du tableau sert de vocabulaire, jamais de contenu à recopier.
+    // Écarter toute ligne dont la provenance orale n'existe pas dans la dictée.
+    if (spokenComparable && !rawComparable.includes(spokenComparable) && !spokenComparable.includes(rawComparable)) return null;
     if (item.type === 'equation' && typeof item.latex === 'string' && item.latex.trim()) {
-      const latex = item.latex.trim().replace(/∫/g, '\\int ').replace(/Δ/g, '\\Delta ').replace(/²/g, '^2').replace(/³/g, '^3');
+      const latex = sanitizeModelLatex(item.latex);
       return { type: 'equation', latex, spoken, ambiguity: item.ambiguity || null };
     }
     if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
@@ -107,7 +184,9 @@ async function interpretWithOllama(text, context, options = {}) {
       method: 'POST', headers: { 'content-type': 'application/json' }, signal: controller.signal,
       body: JSON.stringify({
         model: options.model || DEFAULT_MODEL, system: SYSTEM_PROMPT,
-        prompt: `Dictée: ${normalizeSpeech(text)}\nContexte structuré: ${JSON.stringify(context || {})}`,
+        // Les anciennes équations du tableau ne doivent jamais devenir une
+        // source de contenu. Le modèle reçoit uniquement la dictée courante.
+        prompt: `Dictée: ${normalizeSpeech(text)}\nN'utilise et ne recopie aucune autre ligne du tableau.`,
         stream: false, format: 'json', think: false, keep_alive: options.keepAlive == null ? 0 : options.keepAlive,
         options: { temperature: 0, num_predict: 320, num_ctx: 2048 },
       }),
@@ -122,12 +201,22 @@ async function interpretWithOllama(text, context, options = {}) {
 }
 
 async function interpretScientific(text, context, options = {}) {
-  if (!normalizeSpeech(text)) return { items: [], engine: 'none', complete: true, reason: 'empty' };
-  const deterministic = addTimingEvidence(deterministicInterpret(text), context && context.segments);
+  const cleanedText = extractLatestSelfCorrection(stripKnownAsrBoilerplate(text));
+  if (!cleanedText) return { items: [], engine: 'none', complete: true, reason: 'empty' };
+  const deterministic = addTimingEvidence(deterministicInterpret(cleanedText), context && context.segments);
   if (options.forceRules || (!options.forceModel && deterministic.complete)) return deterministic;
+  // Une longue prise peut être arrêtée au milieu de sa dernière formule.
+  // Conserver les étapes déjà comprises évite que le modèle invente la fin.
+  const failedParses = (deterministic.structuredParse || []).filter((parse) => !parse.complete);
+  const onlyFailure = failedParses.length === 1 ? failedParses[0] : null;
+  const trailingToken = onlyFailure?.unparsedTokens?.at(-1) || onlyFailure?.tokens?.at(-1);
+  const consumedToEnd = onlyFailure && onlyFailure.consumed === onlyFailure.total;
+  if (!options.forceModel && onlyFailure && consumedToEnd && ['=', 'plus', 'moins', 'fois', 'sur', '('].includes(trailingToken)) {
+    return { ...deterministic, engine: 'rules_partial', reason: 'truncated_final_expression' };
+  }
   if (!options.forceRules) {
     try {
-      const modeled = await interpretWithOllama(text, context, options);
+      const modeled = await interpretWithOllama(cleanedText, context, options);
       return { ...modeled, routing: { rules: deterministic.structuredParse, reason: deterministic.reason } };
     } catch (error) {
       if (options.requireModel) throw error;
@@ -144,5 +233,6 @@ async function interpretScientific(text, context, options = {}) {
 
 module.exports = {
   DEFAULT_MODEL, SYSTEM_PROMPT, deterministicInterpret, hasMathIntent, interpretWithOllama,
-  interpretScientific, normalizeSpeech, rulesCanHandle,
+  interpretScientific, normalizeSpeech, rulesCanHandle, sanitizeResult, stripKnownAsrBoilerplate,
+  extractLatestSelfCorrection, sanitizeModelLatex,
 };

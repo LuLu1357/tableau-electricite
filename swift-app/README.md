@@ -52,3 +52,7 @@ recommandée par Apple pour les petits projets.
   `TABLEAU_PORT`, modifie la constante `tableauURL` dans
   `Sources/TableauElectricite/ContentView.swift`.
 - Cible macOS 13 (Ventura) ou plus récent.
+- L’option **Apple Speech** nécessite macOS 26. L’app utilise alors
+  `SpeechAnalyzer` / `SpeechTranscriber` avec le modèle français local et des
+  résultats partiels. Sur un macOS plus ancien, sélectionne **Whisper** ; le
+  reste de l’app conserve sa cible macOS 13.

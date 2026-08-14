@@ -282,6 +282,58 @@ durée audio, transcription et segments Whisper, modèle/prompt, interpréteur e
 raison de sélection, AST/échec de parse, sortie finale et latences. Cet endpoint
 local n'ajoute rien à l'interface et ne conserve pas l'audio.
 
+### Apple Speech dans l’app macOS
+
+Sur macOS 26 ou plus récent, l’app Swift propose aussi **Apple Speech** dans le
+menu **Moteur local**. Cette voie utilise `SpeechAnalyzer` avec
+`SpeechTranscriber` en français, ses résultats volatils pour l’aperçu en direct,
+et son résultat final après l’arrêt. La reconnaissance est effectuée sur
+l’appareil. Le flux PCM déjà capturé par la page est simplement transmis à
+l’app Swift par le pont WKWebView : la capture navigateur, Whisper et le parseur
+mathématique existants restent en place.
+
+Le contexte Apple contient notamment Pythagore, Kirchhoff, Thévenin, Norton,
+Ohm, VC, VR, VS, VL, R1 et R2. Le moteur renvoie ensuite sa transcription au
+même `scientific-interpreter` / `spoken-math-parser`. Les éléments conservent
+donc `source: eleve`, la transcription brute, les segments, l’ambiguïté, le
+moteur d’interprétation, la raison de routage et le parse structuré. Le champ
+`dictation.engine` vaut `apple-speech` ou `whisper`.
+
+Les diagnostics communs exposent maintenant `engine`, `transcription.transcript`,
+`transcription.model`, `transcription.segments`, le vocabulaire contextuel, la
+latence de la passe finale et le pic mémoire. Pour Apple Speech, la mémoire est
+la mémoire résidente maximale observée pour l’app pendant la dictée (avec une
+valeur de départ) ; pour Whisper, elle vient de la mesure du processus
+`whisper-cli`. L’interface affiche après chaque essai le premier texte, la
+finalisation après l’arrêt et la mémoire.
+
+#### Comparer Apple Speech et Whisper sur les mêmes phrases
+
+1. Lance le serveur puis l’app avec `cd swift-app && swift run`.
+2. Choisis **Apple Speech**, dicte la phrase, arrête, puis note le texte final et
+   les trois mesures affichées.
+3. Choisis **Whisper** et redis exactement la même phrase, à distance et débit
+   comparables. Alterne l’ordre des moteurs à chaque répétition pour limiter
+   l’effet d’échauffement.
+4. Fais au moins trois répétitions par moteur et consulte le détail dans
+   `http://127.0.0.1:5858/api/dictation/diagnostics`.
+5. Compare la transcription brute avant de comparer le LaTeX final : les deux
+   moteurs partagent volontairement le même interpréteur.
+
+Mini-corpus conseillé :
+
+- « Pythagore : a au carré plus b au carré égale c au carré » ;
+- « La loi de Kirchhoff donne VS égale VR plus VC » ;
+- « VC égale un sur C fois intégrale de i par rapport au temps » ;
+- « Thévenin donne VTH égale dix volts et RTH égale deux kilo-ohms » ;
+- « Z égale R plus j ouvre parenthèse oméga L moins un sur oméga C ferme
+  parenthèse ».
+
+Cette comparaison utilise les mêmes formulations, mais deux prises de voix
+distinctes. Pour une comparaison ASR strictement identique au niveau audio, le
+benchmark WAV existant reste la référence côté Whisper ; l’entrée fichier
+Apple n’est pas incluse dans cette version minimale.
+
 ### Corpus vocal réel et benchmark
 
 Pour commencer un corpus privé, lance le serveur avec

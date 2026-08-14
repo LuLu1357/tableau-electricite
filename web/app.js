@@ -536,11 +536,25 @@
   // Les aperçus ne sont jamais ajoutés au store ; seul le lot final l'est.
   // ---------------------------------------------------------------------
   const dictationBtn = document.getElementById('dictationBtn');
+  const dictationEngine = document.getElementById('dictationEngine');
   const dictationHint = document.getElementById('dictationHint');
   const dictationOverlay = document.getElementById('dictationOverlay');
   const dictationLabel = document.getElementById('dictationLabel');
   const dictationPreview = document.getElementById('dictationPreview');
   const dictationPulse = document.getElementById('dictationPulse');
+  const appleSpeechBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appleSpeech;
+  const appleSpeechAvailable = !!appleSpeechBridge && window.tableauAppleSpeechAvailable !== false;
+  const scientificVocabulary = [
+    'Pythagore', 'Kirchhoff', 'Thévenin', 'Norton', 'Ohm', 'Faraday',
+    'résistance', 'condensateur', 'capacité', 'impédance', 'tension', 'courant',
+    'VC', 'VR', 'VS', 'VL', 'R1', 'R2', 'delta', 'oméga', 'phi', 'LaTeX'
+  ];
+  let dictationStatus = { whisper: false };
+
+  const savedEngine = localStorage.getItem('tableau-dictation-engine');
+  dictationEngine.value = savedEngine === 'apple-speech' && !appleSpeechAvailable
+    ? 'whisper'
+    : (savedEngine || (appleSpeechAvailable ? 'apple-speech' : 'whisper'));
 
   function pcmToBase64(samples) {
     const bytes = new Uint8Array(samples.buffer);
@@ -587,7 +601,12 @@
       audioProcessor.onaudioprocess = (event) => {
         if (!dictating) return;
         const pcm = downsampleTo16k(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
-        send({ type: 'dictation-audio', pcm: pcmToBase64(pcm) });
+        const encoded = pcmToBase64(pcm);
+        if (dictationEngine.value === 'apple-speech') {
+          appleSpeechBridge.postMessage({ action: 'audio', pcm: encoded });
+        } else {
+          send({ type: 'dictation-audio', pcm: encoded });
+        }
       };
       microphoneSource.connect(audioProcessor);
       audioProcessor.connect(audioContext.destination);
@@ -596,8 +615,10 @@
       dictationBtn.setAttribute('aria-pressed', 'true');
       dictationBtn.textContent = '⏹ Arrêter';
       dictationPreview.textContent = '';
-      showDictation('listening', 'Écoute…', 'Parle naturellement.');
-      send({ type: 'dictation-start', position: insertionPosition, selectedIds: [...selectedIds] });
+      const engine = dictationEngine.value;
+      showDictation('listening', engine === 'apple-speech' ? 'Apple Speech écoute…' : 'Whisper écoute…', 'Parle naturellement.');
+      send({ type: 'dictation-start', engine, position: insertionPosition, selectedIds: [...selectedIds] });
+      if (engine === 'apple-speech') appleSpeechBridge.postMessage({ action: 'start', contextualStrings: scientificVocabulary });
     } catch (error) {
       showDictation('error', 'Microphone indisponible', error.message);
     }
@@ -619,8 +640,20 @@
     dictationBtn.setAttribute('aria-pressed', 'false');
     dictationBtn.textContent = '🎙️ Dicter';
     showDictation('transcribing', 'Transcription…');
-    send({ type: 'dictation-stop' });
+    if (dictationEngine.value === 'apple-speech') appleSpeechBridge.postMessage({ action: 'stop' });
+    else send({ type: 'dictation-stop' });
   }
+
+  window.tableauAppleSpeechEvent = (event) => {
+    if (event.type === 'transcript') {
+      send({ ...event, type: 'dictation-transcript' });
+    } else if (event.type === 'error') {
+      send({ type: 'dictation-cancel' });
+      releaseMicrophone(); dictating = false;
+      dictationBtn.classList.remove('listening'); dictationBtn.textContent = '🎙️ Dicter';
+      showDictation('error', 'Dictée interrompue', event.message || 'Erreur Apple Speech');
+    }
+  };
 
   function handleDictationEvent(msg) {
     if (!msg.type || !msg.type.startsWith('dictation-')) return false;
@@ -635,7 +668,13 @@
     if (msg.type === 'dictation-result') {
       insertionPosition = msg.nextPosition || insertionPosition;
       showDictation('done', 'Ajouté au tableau', msg.transcript);
-      dictationHint.textContent = `Prêt pour la ligne suivante · ${msg.metrics.totalAfterStopMs} ms après l’arrêt`;
+      const memory = msg.diagnostic && msg.diagnostic.transcription && msg.diagnostic.transcription.peakMemoryBytes;
+      const measures = [
+        msg.metrics.firstPreviewMs == null ? null : `premier texte ${msg.metrics.firstPreviewMs} ms`,
+        msg.metrics.transcriptionMs == null ? null : `final ${msg.metrics.transcriptionMs} ms`,
+        memory == null ? null : `mémoire ${(memory / 1048576).toFixed(0)} Mo`
+      ].filter(Boolean).join(' · ');
+      dictationHint.textContent = measures || `Prêt · ${msg.metrics.totalAfterStopMs} ms après l’arrêt`;
       setTimeout(() => { if (!dictating) dictationOverlay.classList.add('hidden'); }, 2800);
       render();
     }
@@ -643,6 +682,10 @@
   }
 
   dictationBtn.addEventListener('click', () => dictating ? stopDictation() : startDictation());
+  dictationEngine.addEventListener('change', () => {
+    localStorage.setItem('tableau-dictation-engine', dictationEngine.value);
+    updateDictationAvailability();
+  });
   window.addEventListener('keydown', (event) => {
     if (event.altKey && event.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
       event.preventDefault();
@@ -650,13 +693,19 @@
     }
   });
 
+  function updateDictationAvailability() {
+    const appleSelected = dictationEngine.value === 'apple-speech';
+    const available = appleSelected ? appleSpeechAvailable : !!dictationStatus.whisper;
+    dictationBtn.disabled = !available;
+    dictationHint.textContent = available
+      ? `${appleSelected ? 'Apple Speech local' : 'Whisper local'} · interprétation ${dictationStatus.interpreter === 'rules-fallback' ? 'locale légère' : 'par modèle local'}`
+      : (appleSelected ? 'Apple Speech est disponible dans l’app macOS.' : 'Whisper local à installer (voir README).');
+  }
+
+  if (!appleSpeechAvailable) dictationEngine.querySelector('option[value="apple-speech"]').disabled = true;
   fetch('/api/dictation/status').then((response) => response.json()).then((status) => {
-    if (!status.whisper) {
-      dictationBtn.disabled = true;
-      dictationHint.textContent = 'Dictée locale à installer (voir README).';
-    } else {
-      dictationHint.textContent = `Prêt · interprétation ${status.interpreter === 'rules-fallback' ? 'locale légère' : 'par modèle local'}`;
-    }
+    dictationStatus = status;
+    updateDictationAvailability();
   }).catch(() => {});
 
   // ---------------------------------------------------------------------
