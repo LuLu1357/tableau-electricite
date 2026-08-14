@@ -361,6 +361,39 @@ française et valide uniquement la chaîne audio complète sans toucher au vrai
 tableau. Ce test synthétique n'est jamais compté comme une mesure de qualité
 ASR.
 
+### Benchmark scientifique de dictée
+
+Le benchmark local mesure les erreurs de transcription et d'interprétation sur
+un corpus de phrases scientifiques sans toucher au pipeline Apple Speech ni à
+la configuration MCP. Il génère un fichier JSON détaillé dans
+`test/dictation-benchmark-results.json` avec notamment la transcription brute,
+la transcription nettoyée, le LaTeX obtenu, le résultat attendu et le type
+principal d'erreur détecté.
+
+Lancer le benchmark :
+
+```bash
+npm run benchmark-dictation
+```
+
+Le script affiche un résumé terminal du type :
+
+```text
+DICTATION BENCHMARK
+-------------------
+Tests : 50
+Réussis : 42
+Échecs : 8
+
+Erreurs principales :
+- omega reconnu comme oméga : 3
+- indice perdu : 4
+- exposant incorrect : 2
+```
+
+Le fichier JSON complet est ensuite disponible dans :
+`test/dictation-benchmark-results.json`.
+
 ### Mesures techniques disponibles (M2, 8 Go)
 
 Contrôle synthétique réalisé le 13 août 2026 avec une phrase de 1,93 s. Il

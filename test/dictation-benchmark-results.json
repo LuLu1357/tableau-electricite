@@ -1,0 +1,137 @@
+[
+  {
+    "phraseAttendue": "VS est égal à VR plus VC",
+    "transcriptionAppleSpeechBrute": "VS est égal à VR plus VC",
+    "transcriptionNettoyee": "VS est égal à VR plus VC",
+    "resultatLatexObtenu": "V_s = V_R + V_C",
+    "resultatAttendu": "V_s = V_R + V_C",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "la tension U est égale à la résistance R fois le courant I",
+    "transcriptionAppleSpeechBrute": "la tension U est égale à la résistance R fois le courant I",
+    "transcriptionNettoyee": "la tension U est égale à la résistance R fois le courant I",
+    "resultatLatexObtenu": "U = RI",
+    "resultatAttendu": "U = RI",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "i est égal à C fois dérivée de VC par rapport au temps",
+    "transcriptionAppleSpeechBrute": "i est égal à C fois dérivée de VC par rapport au temps",
+    "transcriptionNettoyee": "i est égal à C fois dérivée de VC par rapport au temps",
+    "resultatLatexObtenu": "i = C\\frac{dV_C}{dt}",
+    "resultatAttendu": "i = C\\frac{dV_C}{dt}",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "la puissance P est égale à R fois I au carré",
+    "transcriptionAppleSpeechBrute": "la puissance P est égale à R fois I au carré",
+    "transcriptionNettoyee": "la puissance P est égale à R fois I au carré",
+    "resultatLatexObtenu": "P = RI^2",
+    "resultatAttendu": "P = RI^2",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "Z est égal à R plus j oméga L moins un sur oméga C",
+    "transcriptionAppleSpeechBrute": "Z est égal à R plus j omega L moins un sur omega C",
+    "transcriptionNettoyee": "Z est égal à R plus j omega L moins un sur omega C",
+    "resultatLatexObtenu": "Z = R + j\\omega L - \\frac{1}{\\omega C}",
+    "resultatAttendu": "Z = R + j\\left(\\omega L - \\frac{1}{\\omega C}\\right)",
+    "differenceDetectee": "attendu: Z = R + j\\left(\\omega L - \\frac{1}{\\omega C}\\right) | obtenu: Z = R + j\\omega L - \\frac{1}{\\omega C}",
+    "typeErreur": "symbole scientifique"
+  },
+  {
+    "phraseAttendue": "VR un est égal à R un fois I",
+    "transcriptionAppleSpeechBrute": "VR un est égal à R un fois I",
+    "transcriptionNettoyee": "VR un est égal à R un fois I",
+    "resultatLatexObtenu": "V_{R1} = R_1I",
+    "resultatAttendu": "V_{R1} = R_1I",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "VC deux est égal à un sur C deux fois intégrale de I",
+    "transcriptionAppleSpeechBrute": "VC deux est égal à un sur C deux fois intégrale de I",
+    "transcriptionNettoyee": "VC deux est égal à un sur C deux fois intégrale de I",
+    "resultatLatexObtenu": "VC deux est égal à un sur C deux fois intégrale de I",
+    "resultatAttendu": "V_{C2} = \\frac{1}{C_2}\\int I\\,dt",
+    "differenceDetectee": "attendu: V_{C2} = \\frac{1}{C_2}\\int I\\,dt | obtenu: VC deux est égal à un sur C deux fois intégrale de I",
+    "typeErreur": "indice"
+  },
+  {
+    "phraseAttendue": "x au carré plus y au carré égale z au carré",
+    "transcriptionAppleSpeechBrute": "x au carré plus y au carré égale z au carré",
+    "transcriptionNettoyee": "x au carré plus y au carré égale z au carré",
+    "resultatLatexObtenu": "x^2 + y^2 = z^2",
+    "resultatAttendu": "x^2 + y^2 = z^2",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "U max au carré",
+    "transcriptionAppleSpeechBrute": "U maxi au carré",
+    "transcriptionNettoyee": "U maxi au carré",
+    "resultatLatexObtenu": "U maxi au carré",
+    "resultatAttendu": "U_{max}^2",
+    "differenceDetectee": "attendu: U_{max}^2 | obtenu: U maxi au carré",
+    "typeErreur": "exposant"
+  },
+  {
+    "phraseAttendue": "I puissance deux",
+    "transcriptionAppleSpeechBrute": "I puissance deux",
+    "transcriptionNettoyee": "I puissance deux",
+    "resultatLatexObtenu": "I puissance deux",
+    "resultatAttendu": "I^2",
+    "differenceDetectee": "attendu: I^2 | obtenu: I puissance deux",
+    "typeErreur": "exposant"
+  },
+  {
+    "phraseAttendue": "delta est égal à b au carré moins quatre a c",
+    "transcriptionAppleSpeechBrute": "delta est égal à b au carré moins quatre a c",
+    "transcriptionNettoyee": "delta est égal à b au carré moins quatre a c",
+    "resultatLatexObtenu": "\\Delta = b^2 - 4ac",
+    "resultatAttendu": "\\Delta = b^2 - 4ac",
+    "differenceDetectee": "",
+    "typeErreur": "autre"
+  },
+  {
+    "phraseAttendue": "oméga égale deux pi fois la fréquence",
+    "transcriptionAppleSpeechBrute": "omega égale deux pi fois la fréquence",
+    "transcriptionNettoyee": "omega égale deux pi fois la fréquence",
+    "resultatLatexObtenu": "Omega égale deux pi fois la fréquence",
+    "resultatAttendu": "\\omega = 2\\pi f",
+    "differenceDetectee": "attendu: \\omega = 2\\pi f | obtenu: Omega égale deux pi fois la fréquence",
+    "typeErreur": "symbole scientifique"
+  },
+  {
+    "phraseAttendue": "résistance de dix kilo ohms",
+    "transcriptionAppleSpeechBrute": "résistance de dix kilo omes",
+    "transcriptionNettoyee": "résistance de dix kilo omes",
+    "resultatLatexObtenu": "Résistance de dix kilo omes",
+    "resultatAttendu": "R = 10\\,k\\Omega",
+    "differenceDetectee": "attendu: R = 10\\,k\\Omega | obtenu: Résistance de dix kilo omes",
+    "typeErreur": "unité"
+  },
+  {
+    "phraseAttendue": "condensateur de cent micro farads",
+    "transcriptionAppleSpeechBrute": "condensateur de cent micro farads",
+    "transcriptionNettoyee": "condensateur de cent micro farads",
+    "resultatLatexObtenu": "Condensateur de cent micro farads",
+    "resultatAttendu": "C = 100\\,\\mu F",
+    "differenceDetectee": "attendu: C = 100\\,\\mu F | obtenu: Condensateur de cent micro farads",
+    "typeErreur": "unité"
+  },
+  {
+    "phraseAttendue": "bobine de dix milli henrys",
+    "transcriptionAppleSpeechBrute": "bobine de dix milli henries",
+    "transcriptionNettoyee": "bobine de dix milli henries",
+    "resultatLatexObtenu": "Bobine de dix milli henries",
+    "resultatAttendu": "L = 10\\,mH",
+    "differenceDetectee": "attendu: L = 10\\,mH | obtenu: Bobine de dix milli henries",
+    "typeErreur": "unité"
+  }
+]
