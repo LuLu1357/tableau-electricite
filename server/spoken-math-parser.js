@@ -52,7 +52,12 @@ function tokenize(raw, options = {}) {
 
   if (isAppleSource) {
     source = source
-      // Apple sépare parfois l'indice : « C 2 ».
+      // Apple sépare parfois l'indice ou l'écrit en toutes lettres.
+      // L'indice est explicitement présent dans la dictée : aucune
+      // information scientifique n'est reconstruite.
+      .replace(/\bC\s+un\b/gi, 'C1')
+      .replace(/\bC\s+deux\b/gi, 'C2')
+      .replace(/\bC\s+trois\b/gi, 'C3')
       .replace(/\bC\s+(\d+)\b/g, 'C$1')
       // Apple peut fournir directement le signe de multiplication.
       .replace(/[×·]/g, ' fois ')
@@ -82,9 +87,13 @@ function tokenize(raw, options = {}) {
     .replace(/\bzede\b/g, ' capz ')
     // Variantes lexicales Apple : aucune information scientifique n'est inventée.
     .replace(/\bjomega\b/g, ' j omega ')
+    // Variante exacte observée avec Apple Speech : « Oéga » pour « oméga ».
+    .replace(/\boega\b/g, ' omega ')
     .replace(/\bomegal\b/g, ' omega capl ')
     .replace(/\bomegac\b/g, ' omega capc ')
     .replace(/\bintegral\b/g, ' integrale ')
+    // Nom explicite de la grandeur -> symbole mathématique usuel.
+    .replace(/\b(?:la\s+)?frequence\b/g, ' f ')
     .replace(/\br\s+equivalent(?:e)?\b/g, ' req ')
     .replace(/\bd\s+erivee?\s+de\b/g, ' derivee de ')
     .replace(/\bderive\b/g, ' derivee ')
@@ -302,7 +311,7 @@ class Parser {
   }
 
   isSymbolStart(token) {
-    return ['delta', 'omega', 'phi', 'uoft', 'umax'].includes(token) || ['capc', 'capl', 'capp', 'capu', 'capi', 'cape', 'capz', 'req'].includes(token) || /^[a-z]$/.test(token || '') || /^(?:v[rscl]|z[cl]|r\d+|c\d+|v[rcsl]\d*|d[a-z])$/.test(token || '');
+    return ['delta', 'omega', 'phi', 'pi', 'uoft', 'umax'].includes(token) || ['capc', 'capl', 'capp', 'capu', 'capi', 'cape', 'capz', 'req'].includes(token) || /^[a-z]$/.test(token || '') || /^(?:v[rscl]|z[cl]|r\d+|c\d+|v[rcsl]\d*|d[a-z])$/.test(token || '');
   }
 
   parseSymbol() {
@@ -315,6 +324,7 @@ class Parser {
       return node('Symbol', { name: 'omega', subscript });
     }
     if (token === 'phi') return node('Symbol', { name: 'phi' });
+    if (token === 'pi') return node('Symbol', { name: 'pi' });
     if (token === 'uoft') return node('AppliedSymbol', { name: 'U', variable: node('Symbol', { name: 't' }) });
     if (token === 'umax') return node('Symbol', { name: 'U', subscript: 'max' });
     if (token === 'capc') return node('Symbol', { name: 'C' });
@@ -360,7 +370,15 @@ function renderAst(ast, parentPrecedence = 0) {
     case 'Number': value = ast.value; break;
     case 'Symbol': {
       const index = ast.subscript ? (ast.subscript.length === 1 ? `_${ast.subscript}` : `_{${ast.subscript}}`) : '';
-      value = ast.name === 'Delta' ? '\\Delta' : ast.name === 'omega' ? `\\omega${index}` : ast.name === 'phi' ? '\\phi' : `${ast.name}${index}`;
+      value = ast.name === 'Delta'
+        ? '\\Delta'
+        : ast.name === 'omega'
+          ? `\\omega${index}`
+          : ast.name === 'phi'
+            ? '\\phi'
+            : ast.name === 'pi'
+              ? '\\pi'
+              : `${ast.name}${index}`;
       break;
     }
     case 'AppliedSymbol': value = `${ast.name}\\left(${renderAst(ast.variable)}\\right)`; break;
