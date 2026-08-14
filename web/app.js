@@ -668,7 +668,9 @@
     if (msg.type === 'dictation-result') {
       insertionPosition = msg.nextPosition || insertionPosition;
       showDictation('done', 'Ajouté au tableau', msg.transcript);
-      const memory = msg.diagnostic && msg.diagnostic.transcription && msg.diagnostic.transcription.peakMemoryBytes;
+      const transcriptionDiag = msg.diagnostic && msg.diagnostic.transcription ? msg.diagnostic.transcription : null;
+      // Prefer memoryDeltaBytes (peak - baseline) for Apple Speech; fallback to peakMemoryBytes when absent
+      const memory = transcriptionDiag && (Number.isFinite(transcriptionDiag.memoryDeltaBytes) ? transcriptionDiag.memoryDeltaBytes : transcriptionDiag.peakMemoryBytes);
       const measures = [
         msg.metrics.firstPreviewMs == null ? null : `premier texte ${msg.metrics.firstPreviewMs} ms`,
         msg.metrics.transcriptionMs == null ? null : `final ${msg.metrics.transcriptionMs} ms`,
