@@ -1,1 +1,122 @@
-[]
+[
+  {
+    "timestamp": "2026-08-14T14:01:06.669Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "VS est égal à VR plus VC.",
+    "transcriptionNettoyee": "VS est égal à VR plus VC.",
+    "resultatLatexObtenu": "V_s = V_R + V_C",
+    "audioMs": 4102,
+    "firstTextMs": 2248,
+    "transcriptionMs": 152,
+    "finalMs": 4,
+    "memoryDeltaBytes": 4800512
+  },
+  {
+    "timestamp": "2026-08-14T14:01:16.888Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "La puissance P est égale à R fois I au carré",
+    "transcriptionNettoyee": "La puissance P est égale à R fois I au carré",
+    "resultatLatexObtenu": "P = RI^2",
+    "audioMs": 2701,
+    "firstTextMs": 1285,
+    "transcriptionMs": 566,
+    "finalMs": 8,
+    "memoryDeltaBytes": 245760
+  },
+  {
+    "timestamp": "2026-08-14T14:01:17.816Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "La tension U est égale à la résistance R fois le courant en I",
+    "transcriptionNettoyee": "La tension U est égale à la résistance R fois le courant en I",
+    "resultatLatexObtenu": "U = R \\times I",
+    "audioMs": 3402,
+    "firstTextMs": 1264,
+    "transcriptionMs": 43,
+    "finalMs": 5695,
+    "memoryDeltaBytes": 1327104
+  },
+  {
+    "timestamp": "2026-08-14T14:01:32.541Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Delta est égal à B au carré -4 AC VR est égal à R pardon je reprends VR un est égal à R1 fois I",
+    "transcriptionNettoyee": "Delta est égal à B au carré -4 AC VR est égal à R pardon je reprends VR un est égal à R1 fois I",
+    "resultatLatexObtenu": "Delta est égal à B au carré -4 AC VR est égal à R pardon je reprends VR un est égal à R1 fois I",
+    "audioMs": 11207,
+    "firstTextMs": 1235,
+    "transcriptionMs": 47,
+    "finalMs": 3527,
+    "memoryDeltaBytes": 2490368
+  },
+  {
+    "timestamp": "2026-08-14T14:01:40.059Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "VC2 est égal à un sur C 2 × intégral de I.",
+    "transcriptionNettoyee": "VC2 est égal à un sur C 2 × intégral de I.",
+    "resultatLatexObtenu": "VC2 est égal à un sur C 2 × intégral de I",
+    "audioMs": 6103,
+    "firstTextMs": 2128,
+    "transcriptionMs": 158,
+    "finalMs": 3303,
+    "memoryDeltaBytes": 0
+  },
+  {
+    "timestamp": "2026-08-14T14:01:52.965Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Y. Prime plus 2 y est égal à.",
+    "transcriptionNettoyee": "Y. Prime plus 2 y est égal à.",
+    "resultatLatexObtenu": "Y Prime plus 2 y est égal à",
+    "audioMs": 4702,
+    "firstTextMs": 3144,
+    "transcriptionMs": 173,
+    "finalMs": 8094,
+    "memoryDeltaBytes": 2965504
+  },
+  {
+    "timestamp": "2026-08-14T14:01:55.531Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Y. Prime prime plus deux y est égal à zéro.",
+    "transcriptionNettoyee": "Y. Prime prime plus deux y est égal à zéro.",
+    "resultatLatexObtenu": "Y Prime prime plus deux y est égal à zéro",
+    "audioMs": 5003,
+    "firstTextMs": 1276,
+    "transcriptionMs": 139,
+    "finalMs": 2412,
+    "memoryDeltaBytes": 3522560
+  },
+  {
+    "timestamp": "2026-08-14T14:02:03.252Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Oégaale deux pi fois la fréquence",
+    "transcriptionNettoyee": "Oégaale deux pi fois la fréquence",
+    "resultatLatexObtenu": "Oégaale deux pi fois la fréquence",
+    "audioMs": 3702,
+    "firstTextMs": 1237,
+    "transcriptionMs": 35,
+    "finalMs": 2062,
+    "memoryDeltaBytes": 1310720
+  },
+  {
+    "timestamp": "2026-08-14T14:02:13.936Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Z est égal à R plus égaL -1 sur oméga C.",
+    "transcriptionNettoyee": "Z est égal à R plus égaL -1 sur oméga C.",
+    "resultatLatexObtenu": "Z est égal à R plus égaL -1 sur oméga C",
+    "audioMs": 5903,
+    "firstTextMs": 2130,
+    "transcriptionMs": 37,
+    "finalMs": 2238,
+    "memoryDeltaBytes": 1605632
+  },
+  {
+    "timestamp": "2026-08-14T14:02:30.634Z",
+    "source": "apple",
+    "transcriptionAppleSpeechBrute": "Une résistance de 10 kg , une résistance de 10 kg.",
+    "transcriptionNettoyee": "Une résistance de 10 kg , une résistance de 10 kg.",
+    "resultatLatexObtenu": "Une résistance de 10 kg , une résistance de 10 kg",
+    "audioMs": 9806,
+    "firstTextMs": 2125,
+    "transcriptionMs": 34,
+    "finalMs": 1,
+    "memoryDeltaBytes": 1654784
+  }
+]

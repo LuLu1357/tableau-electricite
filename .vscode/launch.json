@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tableau-electricite}/swift-app",
+            "name": "Debug TableauElectricite (swift-app)",
+            "target": "TableauElectricite",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TableauElectricite (swift-app)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tableau-electricite}/swift-app",
+            "name": "Release TableauElectricite (swift-app)",
+            "target": "TableauElectricite",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TableauElectricite (swift-app)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tableau-electricite}/swift-app",
+            "name": "Debug AppleSpeechCli (swift-app)",
+            "target": "AppleSpeechCli",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug AppleSpeechCli (swift-app)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tableau-electricite}/swift-app",
+            "name": "Release AppleSpeechCli (swift-app)",
+            "target": "AppleSpeechCli",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release AppleSpeechCli (swift-app)"
+        }
+    ]
+}
