@@ -76,6 +76,7 @@ async function main() {
     const resApple = await sessionApple.finishExternal();
     console.log('Apple interpreted latex:', resApple.items.map(i => i.latex || i.text).join('\n'));
 
+    let comparisonRan = false;
     if (whisper) {
       // Whisper path
       const storeW = { revision: 0, get: () => null, getAll: () => [], applyBatch(actions) { this.revision+=1; return { revision: this.revision }; } };
@@ -91,9 +92,18 @@ async function main() {
       console.log('Whisper transcript:', whisper.text);
       console.log('Apple latex:', resApple.items.map(i => i.latex || i.text).join('\n'));
       console.log('Whisper latex:', resW.items.map(i => i.latex || i.text).join('\n'));
+      comparisonRan = true;
     }
 
-    console.log('[ok] apple e2e executed — both pipelines ran on the same WAV');
+    if (process.env.STRICT_APPLE_WHISPER === '1' && !comparisonRan) {
+      throw new Error('Strict compare requested but Whisper is unavailable on this host');
+    }
+
+    if (comparisonRan) {
+      console.log('[ok] apple e2e executed — both pipelines ran on the same WAV');
+    } else {
+      console.log('[ok] Apple E2E succeeded; Whisper unavailable on this host — comparison skipped');
+    }
   } finally {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
