@@ -400,3 +400,24 @@ bibliothèques open source suivantes :
 
 Les symboles de circuits (pile, résistance, etc.) suivent la
 convention IEC/CEI utilisée dans l'enseignement en Belgique/France.
+
+## Lancement développement Apple Speech
+
+Pour lancer rapidement l'environnement de développement (Node + app Swift) et tester Apple Speech localement :
+
+- Lancement normal :
+
+    ./scripts/dev-apple.sh
+
+- Relance rapide (saute tests & build) :
+
+    ./scripts/dev-apple.sh --no-tests
+
+- Avec E2E (exécute node test/apple-speech-e2e.js avant le démarrage) :
+
+    ./scripts/dev-apple.sh --e2e
+
+- Port personnalisé :
+
+    TABLEAU_PORT=5860 ./scripts/dev-apple.sh
+

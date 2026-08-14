@@ -137,6 +137,11 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
     private var contextualStrings: [String] = []
     private var analyzerFormat: AVAudioFormat?
 
+    // Native audio capture
+    private var audioEngine: AVAudioEngine?
+    private var tapInstalled = false
+    private var audioConverter: AVAudioConverter?
+
     init(emit: @escaping AppleSpeechController.EventHandler) {
         self.emit = emit
     }
@@ -187,8 +192,72 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
         }
 
         try await analyzer.start(inputSequence: inputSequence)
+
+        // Start native audio capture and feed AnalyzerInput from the input node.
+        if let format = analyzerFormat {
+            try setupAudioEngine(captureFormat: format)
+        }
     }
 
+    private func setupAudioEngine(captureFormat: AVAudioFormat) throws {
+        // Avoid double installs
+        if tapInstalled { return }
+
+        let engine = AVAudioEngine()
+        self.audioEngine = engine
+        let input = engine.inputNode
+        let inputFormat = input.inputFormat(forBus: 0)
+
+        if !inputFormat.isEqual(captureFormat) {
+            audioConverter = AVAudioConverter(from: inputFormat, to: captureFormat)
+        } else {
+            audioConverter = nil
+        }
+
+        // Install tap on input node
+        let frameSize: AVAudioFrameCount = 1024
+        input.installTap(onBus: 0, bufferSize: frameSize, format: inputFormat) { [weak self] buffer, _ in
+            guard let self = self else { return }
+            // Copy/convert buffer to analyzerFormat and yield
+            guard let analyzerFormat = self.analyzerFormat else { return }
+
+            if let converter = self.audioConverter {
+                // Estimate required capacity
+                let ratio = analyzerFormat.sampleRate / inputFormat.sampleRate
+                let outCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+                guard let outBuffer = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: outCapacity) else { return }
+                var error: NSError? = nil
+                let status = converter.convert(to: outBuffer, error: &error) { _, outStatus in
+                    outStatus.pointee = .haveData
+                    return buffer
+                }
+                if status == .haveData {
+                    outBuffer.frameLength = outBuffer.frameLength > 0 ? outBuffer.frameLength : AVAudioFrameCount(Double(buffer.frameLength) * ratio)
+                    self.audioFrames += Int(outBuffer.frameLength)
+                    self.sampleMemory()
+                    self.inputBuilder?.yield(AnalyzerInput(buffer: outBuffer))
+                }
+            } else {
+                // Same format: copy buffer content to a new buffer to be safe
+                guard let copy = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: buffer.frameLength) else { return }
+                copy.frameLength = buffer.frameLength
+                let srcList = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+                let dstList = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+                for i in 0..<min(srcList.count, dstList.count) {
+                    let src = srcList[i]
+                    var dst = dstList[i]
+                    memcpy(dst.mData, src.mData, Int(src.mDataByteSize))
+                    dst.mDataByteSize = src.mDataByteSize
+                }
+                self.audioFrames += Int(copy.frameLength)
+                self.sampleMemory()
+                self.inputBuilder?.yield(AnalyzerInput(buffer: copy))
+            }
+        }
+
+        try engine.start()
+        tapInstalled = true
+    }
     func append(_ data: Data) {
         // Incoming audio is expected to be PCM Int16 mono 16kHz from the browser.
         // The analyzerFormat may differ — never blindly copy raw bytes into a buffer
@@ -284,6 +353,16 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
 
     func stop() async throws {
         stoppedNanoseconds = DispatchTime.now().uptimeNanoseconds
+
+        // Stop native capture first to avoid feeding more audio after stop
+        if tapInstalled, let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            audioEngine = nil
+            tapInstalled = false
+            audioConverter = nil
+        }
+
         inputBuilder?.finish()
         inputBuilder = nil
         try await analyzer?.finalizeAndFinishThroughEndOfInput()
@@ -310,6 +389,15 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
     }
 
     func cancel() {
+        // Ensure capture stopped and taps removed
+        if tapInstalled, let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            audioEngine = nil
+            tapInstalled = false
+            audioConverter = nil
+        }
+
         inputBuilder?.finish()
         inputBuilder = nil
         resultsTask?.cancel()
