@@ -263,7 +263,7 @@ class DictationSession {
     const interpretationStarted = performance.now();
     const interpreted = await interpretScientific(transcript.text, {
       position: this.position, elements: this.context, segments: transcript.segments,
-    });
+    }, { source: transcript && transcript.engine ? transcript.engine : this.engine });
     const actions = interpreted.items.map((item, index) => {
       const y = this.position.y + index * 64;
       const dictation = {

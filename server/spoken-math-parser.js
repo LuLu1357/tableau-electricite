@@ -44,10 +44,11 @@ function prepareSpeech(raw) {
   return { text, prefix };
 }
 
-function tokenize(raw) {
+function tokenize(raw, options = {}) {
   // Whisper conserve souvent la casse des symboles explicitement épelés.
   // On garde C distinct de la variable polynomiale c.
   const joinedVoltageSymbols = String(raw).replace(/\b([VZ])\s+([RSCL])(?:\s+(\d+))?\b/g, (_, base, symbol, index) => `${base}${symbol}${index || ''}`);
+  const isAppleSource = options.source === 'apple';
   let text = fold(joinedVoltageSymbols
     .replace(/\bC\b/g, ' capc ')
     .replace(/\bL\b/g, ' capl ')
@@ -72,10 +73,11 @@ function tokenize(raw) {
     .replace(/\bcapu\s+max\b/g, ' umax ')
     .replace(/\b(?:un|1)\s+sur\s+(capc|[a-z])\s+fois\s+integrale\b/g, ' reciprocal $1 fois integrale ')
     .replace(/\bun\s+demi\b/g, ' half ')
-    .replace(/\bpuis\b/g, ' plus ')
-    // Whisper Small écrit parfois « est égaler » lorsqu'on prononce
-    // naturellement « est égal à ». Cette variante est phonétiquement
-    // équivalente, sans nécessiter d'inventer un membre de l'égalité.
+    // Whisper-specific soft corrections are applied by default except when the
+    // source is explicitly the Apple transcription pipeline. These corrections
+    // were introduced to mitigate typical whisper.cpp errors ("puis"→"plus",
+    // phonetic miswrites, etc.). Do not apply them for high-quality native
+    // transcriptions unless explicitly allowed.
     .replace(/\best\s+egal(?:e|er)?\s+a\b/g, ' = ')
     .replace(/\best\s+egal(?:e|er)?\b/g, ' = ')
     .replace(/\begal(?:e|er)?\s+a\b/g, ' = ')
@@ -89,6 +91,12 @@ function tokenize(raw) {
     .replace(/\//g, ' sur ')
     .replace(/([()=])/g, ' $1 ')
     .replace(/[,.!?;:]+/g, ' ');
+
+  if (!isAppleSource) {
+    // Whisper-specific corrections
+    text = text.replace(/\bpuis\b/g, ' plus ')
+  }
+
   return text.split(/\s+/).filter(Boolean).map((token) => NUMBER_WORDS.get(token) || token);
 }
 
@@ -401,9 +409,9 @@ function exponentAmbiguity(ast) {
   return visit(ast);
 }
 
-function parseSpokenMath(raw) {
+function parseSpokenMath(raw, options = {}) {
   const prepared = prepareSpeech(raw);
-  const tokens = tokenize(prepared.text);
+  const tokens = tokenize(prepared.text, options);
   const parsed = new Parser(tokens).parse();
   const result = { ...parsed, tokens, discardedPrefix: prepared.prefix };
   if (parsed.complete) {

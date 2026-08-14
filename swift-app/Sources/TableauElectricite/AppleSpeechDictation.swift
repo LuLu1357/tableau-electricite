@@ -20,6 +20,8 @@ struct AppleSpeechEvent: Encodable {
     var audioMs: Int? = nil
     var baselineMemoryBytes: UInt64? = nil
     var peakMemoryBytes: UInt64? = nil
+    // peak - baseline is often the most useful number to display
+    var memoryDeltaBytes: UInt64? = nil
     var contextualStrings: [String]? = nil
     var segments: [AppleSpeechSegment]? = nil
     var message: String? = nil
@@ -188,18 +190,96 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
     }
 
     func append(_ data: Data) {
-        guard !data.isEmpty, let format = analyzerFormat else { return }
-        let frameCount = data.count / MemoryLayout<Int16>.size
-        guard frameCount > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else { return }
-        buffer.frameLength = AVAudioFrameCount(frameCount)
-        let buffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-        guard let destination = buffers.first?.mData else { return }
-        data.copyBytes(to: destination.assumingMemoryBound(to: UInt8.self), count: data.count)
-        buffers[0].mDataByteSize = UInt32(data.count)
-        audioFrames += frameCount
+        // Incoming audio is expected to be PCM Int16 mono 16kHz from the browser.
+        // The analyzerFormat may differ — never blindly copy raw bytes into a buffer
+        // that expects floats, different sample rate, or interleaving. Use an
+        // AVAudioConverter when necessary.
+        guard !data.isEmpty, let analyzerFormat = analyzerFormat else { return }
+
+        // Source format: PCM Int16, 16 kHz, mono, interleaved — matches browser output
+        guard let sourceFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000.0, channels: 1, interleaved: true) else { return }
+
+        let sourceFrameCount = data.count / MemoryLayout<Int16>.size
+        guard sourceFrameCount > 0 else { return }
+
+        // Create a source buffer and copy the raw PCM into it
+        guard let sourceBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(sourceFrameCount)) else { return }
+        sourceBuffer.frameLength = AVAudioFrameCount(sourceFrameCount)
+        let srcBuffers = UnsafeMutableAudioBufferListPointer(sourceBuffer.mutableAudioBufferList)
+        if let srcDest = srcBuffers.first?.mData {
+            data.copyBytes(to: srcDest.assumingMemoryBound(to: UInt8.self), count: data.count)
+            srcBuffers[0].mDataByteSize = UInt32(data.count)
+        }
+
+        audioFrames += sourceFrameCount
         sampleMemory()
-        inputBuilder?.yield(AnalyzerInput(buffer: buffer))
+
+        // If analyzer accepts the same format, submit directly (avoid conversion)
+        if analyzerFormat.isEqual(sourceFormat) || (analyzerFormat.sampleRate == sourceFormat.sampleRate && analyzerFormat.channelCount == sourceFormat.channelCount && analyzerFormat.commonFormat == sourceFormat.commonFormat) {
+            // Need to create a buffer with analyzerFormat if formats are equal but object differs
+            if analyzerFormat == sourceFormat {
+                inputBuilder?.yield(AnalyzerInput(buffer: sourceBuffer))
+                return
+            }
+        }
+
+        // Otherwise, convert to analyzerFormat using AVAudioConverter
+        guard let converter = AVAudioConverter(from: sourceFormat, to: analyzerFormat) else {
+            // Fallback: attempt to coerce by creating a buffer in analyzerFormat and copying bytes conservatively
+            if let fallback = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: AVAudioFrameCount(sourceFrameCount)) {
+                fallback.frameLength = AVAudioFrameCount(sourceFrameCount)
+                let dst = UnsafeMutableAudioBufferListPointer(fallback.mutableAudioBufferList)
+                if let dstPtr = dst.first?.mData {
+                    data.copyBytes(to: dstPtr.assumingMemoryBound(to: UInt8.self), count: min(data.count, Int(dst.first!.mDataByteSize)))
+                    dst[0].mDataByteSize = UInt32(min(data.count, Int(dst.first!.mDataByteSize)))
+                }
+                inputBuilder?.yield(AnalyzerInput(buffer: fallback))
+            }
+            return
+        }
+
+        // Create destination buffer sized to hold the converted frames.
+        // Estimate capacity by scaling with sample rates
+        let ratio = analyzerFormat.sampleRate / sourceFormat.sampleRate
+        let destCapacity = AVAudioFrameCount(Double(sourceFrameCount) * max(1.0, ratio) + 1.0)
+        guard let destBuffer = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: destCapacity) else { return }
+
+        var error: NSError? = nil
+        var inputConsumed = false
+
+        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+            if inputConsumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            } else {
+                inputConsumed = true
+                outStatus.pointee = .haveData
+                return sourceBuffer
+            }
+        }
+
+        let status = converter.convert(to: destBuffer, error: &error, withInputFrom: inputBlock)
+        if status == .error || error != nil {
+            // conversion failed — emit best-effort raw source in analyzer format buffer
+            if let fallback = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: AVAudioFrameCount(sourceFrameCount)) {
+                fallback.frameLength = AVAudioFrameCount(sourceFrameCount)
+                let dst = UnsafeMutableAudioBufferListPointer(fallback.mutableAudioBufferList)
+                if let dstPtr = dst.first?.mData {
+                    data.copyBytes(to: dstPtr.assumingMemoryBound(to: UInt8.self), count: min(data.count, Int(dst.first!.mDataByteSize)))
+                    dst[0].mDataByteSize = UInt32(min(data.count, Int(dst.first!.mDataByteSize)))
+                }
+                inputBuilder?.yield(AnalyzerInput(buffer: fallback))
+            }
+            return
+        }
+
+        // Set actual frameLength on destBuffer if converter filled it
+        // (converter usually sets frameLength)
+        if destBuffer.frameLength == 0 {
+            destBuffer.frameLength = destBuffer.frameCapacity
+        }
+
+        inputBuilder?.yield(AnalyzerInput(buffer: destBuffer))
     }
 
     func stop() async throws {
@@ -221,6 +301,7 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
             audioMs: Int((Double(audioFrames) / 16000.0) * 1000.0),
             baselineMemoryBytes: baselineMemoryBytes,
             peakMemoryBytes: peakMemoryBytes,
+            memoryDeltaBytes: peakMemoryBytes >= baselineMemoryBytes ? (peakMemoryBytes - baselineMemoryBytes) : 0,
             contextualStrings: contextualStrings,
             segments: finalizedSegments
         ))
@@ -266,6 +347,7 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
             audioMs: Int((Double(audioFrames) / 16000.0) * 1000.0),
             baselineMemoryBytes: baselineMemoryBytes,
             peakMemoryBytes: peakMemoryBytes,
+            memoryDeltaBytes: peakMemoryBytes >= baselineMemoryBytes ? (peakMemoryBytes - baselineMemoryBytes) : 0,
             contextualStrings: contextualStrings,
             segments: finalizedSegments
         ))

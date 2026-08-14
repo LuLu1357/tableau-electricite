@@ -95,7 +95,7 @@ function sanitizeModelLatex(value) {
   return latex;
 }
 
-function deterministicInterpret(text) {
+function deterministicInterpret(text, options = {}) {
   const parses = [];
   const statements = splitStatements(text);
   const items = statements.map((spoken) => {
@@ -103,7 +103,7 @@ function deterministicInterpret(text) {
       parses.push({ spoken, complete: true, kind: 'text', reason: 'no_math_intent' });
       return plainTextItem(spoken);
     }
-    const parsed = parseSpokenMath(spoken);
+    const parsed = parseSpokenMath(spoken, options);
     parses.push({ spoken, ...parsed });
     if (!parsed.complete) {
       return plainTextItem(spoken, {
@@ -203,7 +203,7 @@ async function interpretWithOllama(text, context, options = {}) {
 async function interpretScientific(text, context, options = {}) {
   const cleanedText = extractLatestSelfCorrection(stripKnownAsrBoilerplate(text));
   if (!cleanedText) return { items: [], engine: 'none', complete: true, reason: 'empty' };
-  const deterministic = addTimingEvidence(deterministicInterpret(cleanedText), context && context.segments);
+  const deterministic = addTimingEvidence(deterministicInterpret(cleanedText, { source: options.source }), context && context.segments);
   if (options.forceRules || (!options.forceModel && deterministic.complete)) return deterministic;
   // Une longue prise peut être arrêtée au milieu de sa dernière formule.
   // Conserver les étapes déjà comprises évite que le modèle invente la fin.

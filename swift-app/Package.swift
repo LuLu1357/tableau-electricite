@@ -10,6 +10,10 @@ let package = Package(
         .executableTarget(
             name: "TableauElectricite",
             path: "Sources/TableauElectricite"
+        ),
+        .executableTarget(
+            name: "AppleSpeechCli",
+            path: "Sources/AppleSpeechCli"
         )
     ]
 )
