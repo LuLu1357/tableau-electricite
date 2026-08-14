@@ -83,18 +83,38 @@ fi
 # Start node server
 TABLEAU_PORT="$TABLEAU_PORT" npm start &
 NODE_PID=$!
+SWIFT_PID=
 
 cleanup() {
   echo "[tableau] Cleaning up..."
-  if kill -0 "$NODE_PID" >/dev/null 2>&1; then
-    kill "$NODE_PID" || true
-    wait "$NODE_PID" 2>/dev/null || true
+  # Kill any process from this repo listening on the port (safe)
+  if command -v lsof >/dev/null; then
+    for pid in $(lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t 2>/dev/null || true); do
+      # Verify process belongs to this repo by checking cwd or args
+      cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      cwd=$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd" {print $9; exit}') || true
+      if echo "$cmd $cwd" | grep -q "$REPO_ROOT"; then
+        echo "[tableau] Stopping process $pid on port $TABLEAU_PORT"
+        kill "$pid" || true
+        wait "$pid" 2>/dev/null || true
+      else
+        echo "[tableau] Not stopping external process $pid ($cmd)"
+      fi
+    done
+  else
+    if [[ -n "$NODE_PID" ]] && kill -0 "$NODE_PID" >/dev/null 2>&1; then
+      kill "$NODE_PID" || true
+      wait "$NODE_PID" 2>/dev/null || true
+    fi
   fi
+
   if [[ -n "$SWIFT_PID" ]] && kill -0 "$SWIFT_PID" >/dev/null 2>&1; then
     kill "$SWIFT_PID" || true
     wait "$SWIFT_PID" 2>/dev/null || true
   fi
 }
+
+# Install trap after cleanup function and var initialization
 trap 'cleanup; exit' INT TERM EXIT
 
 # Wait for health
@@ -125,10 +145,50 @@ fi
 # Start Swift app in foreground
 echo "[tableau] Lancement TableauElectricite…"
 cd swift-app
-TABLEAU_PORT="$TABLEAU_PORT" swift run TableauElectricite &
+
+# Build already performed above; create minimal .app bundle so macOS can honor Info.plist
+BUILD_DIR=".build/debug"
+if [[ -d ".build/release" ]]; then BUILD_DIR=".build/release"; fi
+BIN_PATH="$BUILD_DIR/TableauElectricite"
+if [[ ! -f "$BIN_PATH" ]]; then
+  echo "[tableau] Built executable not found at $BIN_PATH. Attempting swift build..."
+  swift build || { echo "[tableau] swift build failed"; cleanup; exit 1; }
+  BUILD_DIR=".build/debug"
+  if [[ -d ".build/release" ]]; then BUILD_DIR=".build/release"; fi
+  BIN_PATH="$BUILD_DIR/TableauElectricite"
+fi
+
+APP_BUNDLE="$PWD/.build/Run.app"
+CONTENTS="$APP_BUNDLE/Contents"
+mkdir -p "$CONTENTS/MacOS"
+
+# Copy binary into app bundle
+cp "$BIN_PATH" "$CONTENTS/MacOS/TableauElectricite"
+chmod +x "$CONTENTS/MacOS/TableauElectricite"
+
+# Use provided Info.plist if present, otherwise generate a minimal one with NSMicrophoneUsageDescription
+if [[ -f "Resources/Info.plist" ]]; then
+  cp "Resources/Info.plist" "$CONTENTS/Info.plist"
+else
+  cat > "$CONTENTS/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>TableauElectricite</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Le Tableau utilise le microphone pour transcrire localement vos dictées scientifiques.</string>
+</dict>
+</plist>
+PLIST
+fi
+
+# Run the binary inside the bundle (macOS treats it as an app and will read Info.plist)
+TABLEAU_PORT="$TABLEAU_PORT" "$CONTENTS/MacOS/TableauElectricite" &
 SWIFT_PID=$!
 
-# Wait for both to exit; trap will clean up
+# Wait for Swift process exit; trap will clean up Node and Swift
 wait "$SWIFT_PID"
 EXIT_CODE=$?
 cleanup

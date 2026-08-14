@@ -280,13 +280,14 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
             srcBuffers[0].mDataByteSize = UInt32(data.count)
         }
 
-        audioFrames += sourceFrameCount
-        sampleMemory()
 
         // If analyzer accepts the same format, submit directly (avoid conversion)
         if analyzerFormat.isEqual(sourceFormat) || (analyzerFormat.sampleRate == sourceFormat.sampleRate && analyzerFormat.channelCount == sourceFormat.channelCount && analyzerFormat.commonFormat == sourceFormat.commonFormat) {
             // Need to create a buffer with analyzerFormat if formats are equal but object differs
             if analyzerFormat == sourceFormat {
+                // Direct submit — count frames at analyzer rate (same as source)
+                self.audioFrames += Int(sourceBuffer.frameLength)
+                self.sampleMemory()
                 inputBuilder?.yield(AnalyzerInput(buffer: sourceBuffer))
                 return
             }
@@ -303,6 +304,8 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
                     dst[0].mDataByteSize = UInt32(min(data.count, Int(dst.first!.mDataByteSize)))
                 }
                 inputBuilder?.yield(AnalyzerInput(buffer: fallback))
+                self.audioFrames += Int(fallback.frameLength)
+                self.sampleMemory()
             }
             return
         }
@@ -314,17 +317,16 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
         guard let destBuffer = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: destCapacity) else { return }
 
         var error: NSError? = nil
-        var inputConsumed = false
-
+        // Provide the source buffer exactly once to the converter, then indicate endOfStream.
+        var provided = false
         let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-            if inputConsumed {
-                outStatus.pointee = .noDataNow
+            if provided {
+                outStatus.pointee = .endOfStream
                 return nil
-            } else {
-                inputConsumed = true
-                outStatus.pointee = .haveData
-                return sourceBuffer
             }
+            provided = true
+            outStatus.pointee = .haveData
+            return sourceBuffer
         }
 
         let status = converter.convert(to: destBuffer, error: &error, withInputFrom: inputBlock)
@@ -338,16 +340,20 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
                     dst[0].mDataByteSize = UInt32(min(data.count, Int(dst.first!.mDataByteSize)))
                 }
                 inputBuilder?.yield(AnalyzerInput(buffer: fallback))
+                // Count frames submitted to analyzer (best-effort)
+                self.audioFrames += Int(fallback.frameLength)
             }
             return
         }
 
-        // Set actual frameLength on destBuffer if converter filled it
-        // (converter usually sets frameLength)
+        // Ensure frameLength is correct
         if destBuffer.frameLength == 0 {
             destBuffer.frameLength = destBuffer.frameCapacity
         }
 
+        // Count the frames actually provided to analyzer (after conversion)
+        self.audioFrames += Int(destBuffer.frameLength)
+        self.sampleMemory()
         inputBuilder?.yield(AnalyzerInput(buffer: destBuffer))
     }
 
