@@ -10,16 +10,79 @@ cd "$REPO_ROOT"
 : "${TABLEAU_PORT:=5859}"
 NO_TESTS=0
 E2E=0
+CLEANUP_RUNNING=0
+CLEANUP_DONE=0
+NODE_PID=""
+SWIFT_PID=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-tests) NO_TESTS=1; shift;;
-    --e2e) E2E=1; shift;;
-    -p|--port) TABLEAU_PORT="$2"; shift 2;;
-    *) echo "Unknown arg: $1"; exit 2;;
+    --no-tests) NO_TESTS=1; shift ;;
+    --e2e) E2E=1; shift ;;
+    -p|--port) TABLEAU_PORT="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1"; exit 2 ;;
   esac
 done
+
+terminate_pid() {
+  local name="$1"
+  local pid="$2"
+
+  if [[ -z "$pid" ]]; then
+    return 0
+  fi
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  echo "[tableau] Stopping ${name} PID $pid"
+  kill -TERM "$pid" 2>/dev/null || true
+
+  for _ in {1..10}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.2
+  done
+
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+
+  wait "$pid" 2>/dev/null || true
+  return 0
+}
+
+cleanup() {
+  local rc="${1:-0}"
+
+  if [[ "${CLEANUP_DONE:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  CLEANUP_DONE=1
+  CLEANUP_RUNNING=1
+  trap - EXIT INT TERM
+
+  echo "[tableau] Cleaning up..."
+
+  terminate_pid "Node" "$NODE_PID" || true
+  terminate_pid "Swift" "$SWIFT_PID" || true
+
+  if command -v lsof >/dev/null; then
+    if lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+      echo "[tableau] Port $TABLEAU_PORT still open after cleanup"
+    fi
+  fi
+
+  return "$rc"
+}
+
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'rc=$?; trap - EXIT INT TERM; cleanup "$rc"; exit "$rc"' EXIT
 
 echo "[tableau] Repo: $REPO_ROOT"
 echo "[tableau] Port : $TABLEAU_PORT"
@@ -34,29 +97,30 @@ existing_pid=""
 if command -v lsof >/dev/null; then
   existing_pid=$(lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t || true)
 else
-  # macOS provides lsof usually; fallback to netstat
   existing_pid=$(netstat -vanp tcp | awk '/\.'"$TABLEAU_PORT"'/ {print $9}' | sed 's/,.*//' | tr -d '\n' || true)
 fi
 
 if [[ -n "$existing_pid" ]]; then
-  # Check if the process is our node or swift (heuristic)
   cmd=$(ps -p "$existing_pid" -o args= || true)
-  if echo "$cmd" | grep -q "npm start\|TableauElectricite\|swift run"; then
+  cwd=$(lsof -p "$existing_pid" 2>/dev/null | awk '$4=="cwd" {print $9; exit}' || true)
+  if [[ -n "$cwd" ]] && { [[ "$cwd" == "$REPO_ROOT" ]] || [[ "$cwd" == "$REPO_ROOT"/* ]]; }; then
     echo "[tableau] Found existing project process on port $TABLEAU_PORT (pid $existing_pid). Stopping it..."
-    kill "$existing_pid" || true
-    # Wait up to 8s
-    for i in {1..8}; do
-      if ! (lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t >/dev/null 2>&1); then
+    kill -TERM "$existing_pid" 2>/dev/null || true
+    for _ in {1..10}; do
+      if ! lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
         break
       fi
-      sleep 1
+      sleep 0.2
     done
     if lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
-      echo "[tableau] Failed to free port $TABLEAU_PORT"; exit 1
+      kill -KILL "$existing_pid" 2>/dev/null || true
+    fi
+    if lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+      echo "[tableau] Port still in use after forced termination"; exit 1
     fi
   else
-    echo "[tableau] Port $TABLEAU_PORT is in use by another program: $cmd"
-    echo "Please choose another port or stop that program."
+    echo "[tableau] Port $TABLEAU_PORT used by another process."
+    echo "[tableau] Use TABLEAU_PORT=YYYY."
     exit 1
   fi
 fi
@@ -80,44 +144,17 @@ if [[ "$E2E" -eq 1 ]]; then
   echo "[tableau] E2E OK"
 fi
 
-# Start node server
-TABLEAU_PORT="$TABLEAU_PORT" npm start &
+# Start node server directly, without npm wrapper.
+TABLEAU_PORT="$TABLEAU_PORT" node server/mcp-server.js &
 NODE_PID=$!
-SWIFT_PID=
+echo "[tableau] Node PID: $NODE_PID"
+NODE_CMD=$(ps -p "$NODE_PID" -o args= 2>/dev/null || true)
+if [[ "$NODE_CMD" != "node server/mcp-server.js" ]]; then
+  echo "[tableau] Unexpected Node process for PID $NODE_PID: $NODE_CMD"
+  cleanup 1
+  exit 1
+fi
 
-cleanup() {
-  echo "[tableau] Cleaning up..."
-  # Kill any process from this repo listening on the port (safe)
-  if command -v lsof >/dev/null; then
-    for pid in $(lsof -nP -iTCP:"$TABLEAU_PORT" -sTCP:LISTEN -t 2>/dev/null || true); do
-      # Verify process belongs to this repo by checking cwd or args
-      cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
-      cwd=$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd" {print $9; exit}') || true
-      if echo "$cmd $cwd" | grep -q "$REPO_ROOT"; then
-        echo "[tableau] Stopping process $pid on port $TABLEAU_PORT"
-        kill "$pid" || true
-        wait "$pid" 2>/dev/null || true
-      else
-        echo "[tableau] Not stopping external process $pid ($cmd)"
-      fi
-    done
-  else
-    if [[ -n "$NODE_PID" ]] && kill -0 "$NODE_PID" >/dev/null 2>&1; then
-      kill "$NODE_PID" || true
-      wait "$NODE_PID" 2>/dev/null || true
-    fi
-  fi
-
-  if [[ -n "$SWIFT_PID" ]] && kill -0 "$SWIFT_PID" >/dev/null 2>&1; then
-    kill "$SWIFT_PID" || true
-    wait "$SWIFT_PID" 2>/dev/null || true
-  fi
-}
-
-# Install trap after cleanup function and var initialization
-trap 'cleanup; exit' INT TERM EXIT
-
-# Wait for health
 echo "[tableau] Waiting for health check at http://127.0.0.1:$TABLEAU_PORT/api/health"
 for i in {1..30}; do
   if command -v curl >/dev/null; then
@@ -126,7 +163,6 @@ for i in {1..30}; do
       break
     fi
   else
-    # fallback: try nc
     if command -v nc >/dev/null; then
       if nc -z 127.0.0.1 "$TABLEAU_PORT"; then
         echo "[tableau] Port open (nc)"
@@ -137,59 +173,73 @@ for i in {1..30}; do
   sleep 1
 done
 
-# If health check never succeeded
 if ! (curl -s -f "http://127.0.0.1:$TABLEAU_PORT/api/health" >/dev/null 2>&1); then
-  echo "[tableau] Health check failed after waiting"; cleanup; exit 1
+  echo "[tableau] Health check failed after waiting"
+  cleanup 1
+  exit 1
 fi
 
-# Start Swift app in foreground
+echo "[tableau] Manual TCC reset if the mic prompt is missing: tccutil reset Microphone com.tableauelectricite.dev"
+
 echo "[tableau] Lancement TableauElectricite…"
 cd swift-app
 
-# Build already performed above; create minimal .app bundle so macOS can honor Info.plist
 BUILD_DIR=".build/debug"
 if [[ -d ".build/release" ]]; then BUILD_DIR=".build/release"; fi
 BIN_PATH="$BUILD_DIR/TableauElectricite"
 if [[ ! -f "$BIN_PATH" ]]; then
   echo "[tableau] Built executable not found at $BIN_PATH. Attempting swift build..."
-  swift build || { echo "[tableau] swift build failed"; cleanup; exit 1; }
+  swift build || { echo "[tableau] swift build failed"; cleanup 1; exit 1; }
   BUILD_DIR=".build/debug"
   if [[ -d ".build/release" ]]; then BUILD_DIR=".build/release"; fi
   BIN_PATH="$BUILD_DIR/TableauElectricite"
 fi
 
-APP_BUNDLE="$PWD/.build/Run.app"
+APP_BUNDLE="$PWD/.build/TableauElectriciteDev.app"
 CONTENTS="$APP_BUNDLE/Contents"
+rm -rf "$APP_BUNDLE"
 mkdir -p "$CONTENTS/MacOS"
 
-# Copy binary into app bundle
+if [[ ! -f "Resources/Info.plist" ]]; then
+  echo "[tableau] Missing Resources/Info.plist"
+  cleanup 1
+  exit 1
+fi
+cp "Resources/Info.plist" "$CONTENTS/Info.plist"
+
 cp "$BIN_PATH" "$CONTENTS/MacOS/TableauElectricite"
 chmod +x "$CONTENTS/MacOS/TableauElectricite"
 
-# Use provided Info.plist if present, otherwise generate a minimal one with NSMicrophoneUsageDescription
-if [[ -f "Resources/Info.plist" ]]; then
-  cp "Resources/Info.plist" "$CONTENTS/Info.plist"
-else
-  cat > "$CONTENTS/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>
-  <string>TableauElectricite</string>
-  <key>NSMicrophoneUsageDescription</key>
-  <string>Le Tableau utilise le microphone pour transcrire localement vos dictées scientifiques.</string>
-</dict>
-</plist>
-PLIST
+plutil -lint "$CONTENTS/Info.plist" || { echo "[tableau] Invalid Info.plist in bundle"; cleanup 1; exit 1; }
+
+for key in \
+  "CFBundleIdentifier" \
+  "CFBundleExecutable" \
+  "CFBundlePackageType" \
+  "NSMicrophoneUsageDescription"; do
+  value=$( /usr/libexec/PlistBuddy -c "Print :$key" "$CONTENTS/Info.plist" 2>/dev/null || true )
+  echo "[tableau] $key = ${value:-<missing>}"
+  if [[ -z "$value" ]]; then
+    echo "[tableau] Missing required plist key: $key"
+    cleanup 1
+    exit 1
+  fi
+done
+
+if [[ ! -x "$CONTENTS/MacOS/TableauElectricite" ]]; then
+  echo "[tableau] Built binary is not executable inside bundle"
+  cleanup 1
+  exit 1
 fi
 
-# Run the binary inside the bundle (macOS treats it as an app and will read Info.plist)
 TABLEAU_PORT="$TABLEAU_PORT" "$CONTENTS/MacOS/TableauElectricite" &
 SWIFT_PID=$!
+echo "[tableau] Swift PID: $SWIFT_PID"
 
-# Wait for Swift process exit; trap will clean up Node and Swift
-wait "$SWIFT_PID"
-EXIT_CODE=$?
-cleanup
+if wait "$SWIFT_PID"; then
+  EXIT_CODE=0
+else
+  EXIT_CODE=$?
+fi
+
 exit "$EXIT_CODE"

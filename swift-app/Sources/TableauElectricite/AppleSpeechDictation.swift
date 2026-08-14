@@ -147,9 +147,11 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
     }
 
     func start(contextualStrings: [String]) async throws {
+        print("[AppleSpeech] start contextCount=\(contextualStrings.count)")
         let requestedLocale = Locale(identifier: "fr_FR")
         guard SpeechTranscriber.isAvailable,
               let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requestedLocale) else {
+            print("[AppleSpeech] locale unavailable")
             throw SpeechError.localeUnavailable
         }
 
@@ -192,9 +194,12 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
         }
 
         try await analyzer.start(inputSequence: inputSequence)
+        let analyzerRate = String(format: "%.0f", format.sampleRate)
+        print("[AppleSpeech] analyzer started; analyzerFormat sampleRate=\(analyzerRate), channels=\(format.channelCount)")
 
         // Start native audio capture and feed AnalyzerInput from the input node.
         if let format = analyzerFormat {
+            print("[AppleSpeech] starting AVAudioEngine with analyzer format")
             try setupAudioEngine(captureFormat: format)
         }
     }
@@ -207,11 +212,17 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
         self.audioEngine = engine
         let input = engine.inputNode
         let inputFormat = input.inputFormat(forBus: 0)
+        let inputRate = String(format: "%.0f", inputFormat.sampleRate)
+        let captureRate = String(format: "%.0f", captureFormat.sampleRate)
+        print("[AppleSpeech] inputFormat sampleRate=\(inputRate), channels=\(inputFormat.channelCount), commonFormat=\(inputFormat.commonFormat)")
+        print("[AppleSpeech] captureFormat sampleRate=\(captureRate), channels=\(captureFormat.channelCount), commonFormat=\(captureFormat.commonFormat)")
 
         if !inputFormat.isEqual(captureFormat) {
             audioConverter = AVAudioConverter(from: inputFormat, to: captureFormat)
+            print("[AppleSpeech] converter active: yes")
         } else {
             audioConverter = nil
+            print("[AppleSpeech] converter active: no")
         }
 
         // Install tap on input node
@@ -267,8 +278,9 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
 
         // Source format: PCM Int16, 16 kHz, mono, interleaved — matches browser output
         guard let sourceFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000.0, channels: 1, interleaved: true) else { return }
-
         let sourceFrameCount = data.count / MemoryLayout<Int16>.size
+
+
         guard sourceFrameCount > 0 else { return }
 
         // Create a source buffer and copy the raw PCM into it
@@ -318,13 +330,16 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
 
         var error: NSError? = nil
         // Provide the source buffer exactly once to the converter, then indicate endOfStream.
-        var provided = false
-        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-            if provided {
+        final class ConverterState: @unchecked Sendable {
+            var provided = false
+        }
+        let state = ConverterState()
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            if state.provided {
                 outStatus.pointee = .endOfStream
                 return nil
             }
-            provided = true
+            state.provided = true
             outStatus.pointee = .haveData
             return sourceBuffer
         }
@@ -376,6 +391,8 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
         sampleMemory()
 
         let finalText = joined(finalizedTranscript, volatileTranscript).trimmingCharacters(in: .whitespacesAndNewlines)
+        print("[AppleSpeech] final transcript=\(finalText)")
+        print("[AppleSpeech] stop total frames=\(audioFrames)")
         guard !finalText.isEmpty else { throw SpeechError.noSpeech }
         let stopped = stoppedNanoseconds ?? DispatchTime.now().uptimeNanoseconds
         emit(.init(
@@ -417,7 +434,10 @@ private final class AppleSpeechSession: AppleSpeechSessionProtocol {
     private func receive(_ result: SpeechTranscriber.Result) {
         let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        if firstTextMs == nil { firstTextMs = milliseconds(since: startedNanoseconds) }
+        if firstTextMs == nil {
+            firstTextMs = milliseconds(since: startedNanoseconds)
+            print("[AppleSpeech] first transcript=\(text)")
+        }
         sampleMemory()
 
         if result.isFinal {

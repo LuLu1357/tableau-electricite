@@ -43,14 +43,14 @@ recommandée par Apple pour les petits projets.
 
 ## Notes techniques
 
-- La fenêtre charge `http://127.0.0.1:5858` dans un `WKWebView`.
+- La fenêtre charge `http://127.0.0.1:5859` dans un `WKWebView` par défaut.
   macOS autorise nativement le HTTP non chiffré vers `localhost` et les
   adresses de boucle locale (exception intégrée à l'App Transport
   Security) — aucune configuration `Info.plist` supplémentaire n'est
   nécessaire.
 - Si le port du serveur a été changé via la variable d'environnement
-  `TABLEAU_PORT`, modifie la constante `tableauURL` dans
-  `Sources/TableauElectricite/ContentView.swift`.
+  `TABLEAU_PORT`, la constante `tableauURL` dans
+  `Sources/TableauElectricite/ContentView.swift` s’ajuste automatiquement.
 - Cible macOS 13 (Ventura) ou plus récent.
 - L’option **Apple Speech** nécessite macOS 26. L’app utilise alors
   `SpeechAnalyzer` / `SpeechTranscriber` avec le modèle français local et des

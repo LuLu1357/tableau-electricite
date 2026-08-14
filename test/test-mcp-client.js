@@ -6,10 +6,21 @@
 // est supprimé au début et à la fin.
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
-const TEST_PORT = '5859';
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(String(port)));
+    });
+  });
+}
+
 const TEST_DATA_FILE = path.join(__dirname, '..', 'data', 'tableau-test.json');
 const PDF_FIXTURE = path.join(__dirname, 'fixtures', 'cours-test.pdf');
 
@@ -25,6 +36,7 @@ function cleanupDataFile() {
 
 async function main() {
   cleanupDataFile();
+  const TEST_PORT = process.env.TABLEAU_PORT || await getFreePort();
 
   const transport = new StdioClientTransport({
     command: process.execPath,

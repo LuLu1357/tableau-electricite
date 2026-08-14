@@ -3,8 +3,8 @@ import SwiftUI
 import WebKit
 
 /// URL par défaut du serveur local du Tableau.
-/// Utilise la variable d'environnement TABLEAU_PORT si fournie, sinon 5858.
-private let tableauPort = Int(ProcessInfo.processInfo.environment["TABLEAU_PORT"] ?? "5858") ?? 5858
+/// Utilise la variable d'environnement TABLEAU_PORT si fournie, sinon 5859.
+private let tableauPort = Int(ProcessInfo.processInfo.environment["TABLEAU_PORT"] ?? "5859") ?? 5859
 private let tableauURL = URL(string: "http://127.0.0.1:\(tableauPort)")!
 
 struct ContentView: View {
